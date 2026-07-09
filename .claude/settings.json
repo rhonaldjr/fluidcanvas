@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sudo -n true)",
+      "Bash(git check-ignore *)",
+      "Bash(echo \"\\(exit $?\\)\")",
+      "Bash(command -v clang++)",
+      "Bash(pkg-config --exists gtk+-3.0)"
+    ]
+  }
+}
