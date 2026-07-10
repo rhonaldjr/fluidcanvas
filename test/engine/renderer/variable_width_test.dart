@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:inkpad/domain/models/models.dart';
 import 'package:inkpad/engine/renderer/variable_width.dart';
@@ -197,6 +199,34 @@ void main() {
       expect(path.contains(const Offset(20, 0)), isTrue);
       // Just inside the ribbon, next to the start cap.
       expect(path.contains(const Offset(1, 1)), isTrue);
+    });
+
+    test('a long random scribble builds without throwing', () {
+      // Regression: the caps used to be unioned onto the ribbon with
+      // Path.combine, which throws "Path.combine() failed" on the
+      // self-intersecting paths a real scribble produces.
+      final rnd = math.Random(7);
+      final points = [
+        for (var i = 0; i < 200; i++)
+          StrokePoint(
+            x: rnd.nextDouble() * 1900,
+            y: rnd.nextDouble() * 1060,
+            pressure: rnd.nextDouble(),
+          ),
+      ];
+      expect(() => buildVariableWidthPath(points, 4), returnsNormally);
+      expect(buildVariableWidthPath(points, 4).getBounds().isFinite, isTrue);
+    });
+
+    test('a stroke crossing itself builds without throwing', () {
+      final figureEight = [
+        for (var i = 0; i < 64; i++)
+          StrokePoint(
+            x: 50 + 40 * math.sin(i / 10),
+            y: 50 + 40 * math.sin(i / 5),
+          ),
+      ];
+      expect(() => buildVariableWidthPath(figureEight, 12), returnsNormally);
     });
   });
 }

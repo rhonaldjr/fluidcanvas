@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/domain/models/models.dart';
 import 'package:inkpad/engine/pointer_input.dart';
-import 'package:inkpad/engine/renderer/document_painter.dart';
+import 'package:inkpad/engine/renderer/layer_cache.dart';
+import 'package:inkpad/engine/renderer/layer_stack_painter.dart';
 import 'package:inkpad/engine/smoothing.dart';
 import 'package:inkpad/engine/stabilizer.dart';
 import 'package:inkpad/engine/thinning.dart';
@@ -23,7 +24,7 @@ const String kLiveStrokeId = 'live';
 /// The page is scaled to fit the viewport, never magnified past 100%. Phase 12
 /// replaces this fixed fit-to-viewport scale with a per-session pan/zoom
 /// transform.
-class CanvasView extends ConsumerWidget {
+class CanvasView extends ConsumerStatefulWidget {
   const CanvasView({super.key});
 
   /// Page scale that fits a [documentWidth] x [documentHeight] page inside
@@ -49,12 +50,30 @@ class CanvasView extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CanvasView> createState() => _CanvasViewState();
+}
+
+class _CanvasViewState extends ConsumerState<CanvasView> {
+  /// One rasterized image per layer. Owned here so it lives across rebuilds and
+  /// is disposed with the widget.
+  final LayerCache _cache = LayerCache();
+
+  @override
+  void dispose() {
+    _cache.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final session = ref.watch(activeSessionProvider);
     final document = session.document;
     final points = ref.watch(currentStrokeProvider);
     final brush = ref.watch(brushProvider);
     final tool = ref.watch(toolProvider);
+
+    // A layer removed from the document must not keep holding its image.
+    _cache.retainOnly([for (final layer in document.layers) layer.id]);
 
     // The live stroke is a real Stroke so it paints through exactly the code
     // that will paint it once committed — including the eraser's blend mode.
@@ -68,14 +87,34 @@ class CanvasView extends ConsumerWidget {
             points: points,
           );
 
+    // Split the stack so only the active layer repaints while drawing.
+    final activeIndex = document.indexOfLayer(session.activeLayerId);
+    final below = document.layers.sublist(0, activeIndex);
+    final active = document.layers.sublist(activeIndex, activeIndex + 1);
+    final above = document.layers.sublist(activeIndex + 1);
+
     return ColoredBox(
       color: const Color(0xFF6E6E6E),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final scale = fitScale(
+          final scale = CanvasView.fitScale(
             viewport: constraints.biggest,
             documentWidth: document.canvasWidth,
             documentHeight: document.canvasHeight,
+          );
+
+          LayerStackPainter painterFor(
+            List<Layer> layers,
+            String label, {
+            Stroke? live,
+          }) => LayerStackPainter(
+            layers: layers,
+            documentWidth: document.canvasWidth,
+            documentHeight: document.canvasHeight,
+            scale: scale,
+            cache: _cache,
+            liveStroke: live,
+            debugLabel: label,
           );
 
           return Center(
@@ -97,16 +136,30 @@ class CanvasView extends ConsumerWidget {
                 // A zero-size page cannot map screen pixels into document
                 // space, so there is nothing to draw or capture.
                 child: scale > 0
-                    ? RepaintBoundary(
-                        child: CustomPaint(
-                          painter: DocumentPainter(
-                            document: document,
-                            scale: scale,
-                            liveStroke: liveStroke,
-                            liveLayerId: session.activeLayerId,
+                    ? Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          RepaintBoundary(
+                            child: CustomPaint(
+                              painter: painterFor(below, 'below'),
+                            ),
                           ),
-                          child: StrokeCapture(scale: scale),
-                        ),
+                          RepaintBoundary(
+                            child: CustomPaint(
+                              painter: painterFor(
+                                active,
+                                'active',
+                                live: liveStroke,
+                              ),
+                            ),
+                          ),
+                          RepaintBoundary(
+                            child: CustomPaint(
+                              painter: painterFor(above, 'above'),
+                            ),
+                          ),
+                          StrokeCapture(scale: scale),
+                        ],
                       )
                     : null,
               ),

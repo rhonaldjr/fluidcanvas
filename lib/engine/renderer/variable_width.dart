@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'dart:ui' show Offset, Path, PathOperation, Rect;
+import 'dart:ui' show Offset, Path, Radius, Rect;
 
 import 'package:inkpad/domain/models/models.dart';
 
@@ -64,33 +64,36 @@ Path buildVariableWidthPath(
     right.add(centre - offset);
   }
 
+  // One closed subpath: up the left side, round the end cap, back down the
+  // right side, round the start cap.
+  //
+  // The caps are arcs *within* the outline rather than separate discs unioned
+  // onto it. Discs added as subpaths wind against the ribbon and a non-zero
+  // fill cancels them into crescent-shaped holes; unioning them with
+  // `Path.combine` fixes that but throws "Path.combine() failed" on the
+  // self-intersecting paths a real scribble produces. Arcs avoid both.
+  final last = points.length - 1;
+
   path.moveTo(left.first.dx, left.first.dy);
   for (final point in left.skip(1)) {
     path.lineTo(point.dx, point.dy);
   }
-  for (final point in right.reversed) {
-    path.lineTo(point.dx, point.dy);
+  path.arcToPoint(
+    right[last],
+    radius: Radius.circular(halfWidthAt(last)),
+    clockwise: false,
+  );
+  for (var i = last - 1; i >= 0; i--) {
+    path.lineTo(right[i].dx, right[i].dy);
   }
+  path.arcToPoint(
+    left.first,
+    radius: Radius.circular(halfWidthAt(0)),
+    clockwise: false,
+  );
   path.close();
 
-  // Round caps, unioned rather than merely added as subpaths. The ribbon and
-  // the discs can wind in opposite directions, and a non-zero fill then cancels
-  // them where they overlap, leaving a crescent-shaped hole at each endpoint.
-  final caps = Path()
-    ..addOval(
-      Rect.fromCircle(
-        center: Offset(points.first.x, points.first.y),
-        radius: halfWidthAt(0),
-      ),
-    )
-    ..addOval(
-      Rect.fromCircle(
-        center: Offset(points.last.x, points.last.y),
-        radius: halfWidthAt(points.length - 1),
-      ),
-    );
-
-  return Path.combine(PathOperation.union, path, caps);
+  return path;
 }
 
 /// Unit normal at each point: perpendicular to the local tangent.

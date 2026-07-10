@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:inkpad/domain/models/models.dart';
-import 'package:inkpad/engine/renderer/document_painter.dart';
+import 'package:inkpad/engine/renderer/layer_stack_painter.dart';
 import 'package:inkpad/engine/smoothing.dart';
 import 'package:inkpad/state/state.dart';
 import 'package:inkpad/ui/ui.dart';
@@ -32,16 +32,15 @@ SkdDocument documentOf(ProviderContainer c) => c.read(activeDocumentProvider);
 Layer activeLayerOf(ProviderContainer c) =>
     c.read(activeSessionProvider).activeLayer;
 
-DocumentPainter painterOf(WidgetTester tester) {
-  final paint = tester.widget<CustomPaint>(
-    find
-        .ancestor(
-          of: find.byType(StrokeCapture),
-          matching: find.byType(CustomPaint),
-        )
-        .first,
-  );
-  return paint.painter! as DocumentPainter;
+/// The painter for the active layer — the only one that carries the live
+/// stroke, and the only one that repaints while drawing.
+LayerStackPainter painterOf(WidgetTester tester) {
+  final painters = tester
+      .widgetList<CustomPaint>(find.byType(CustomPaint))
+      .map((p) => p.painter)
+      .whereType<LayerStackPainter>()
+      .where((p) => p.debugLabel == 'active');
+  return painters.single;
 }
 
 /// Points of the stroke currently under the pointer, as the painter sees them.
@@ -272,7 +271,7 @@ void main() {
 
       expect(painterOf(tester).liveStroke!.isEraser, isTrue);
       expect(
-        painterOf(tester).liveLayerId,
+        painterOf(tester).layers.single.id,
         container.read(activeSessionProvider).activeLayerId,
       );
 
@@ -507,6 +506,127 @@ void main() {
       // The live stroke is gone, but the document keeps it.
       expect(livePointsOf(tester), isEmpty);
       expect(activeLayerOf(container).elementCount, 1);
+    });
+  });
+
+  group('incremental repainting', () {
+    /// Puts a layer below and above the active one, so all three boundaries
+    /// exist and can be watched independently.
+    Future<ProviderContainer> pumpThreeLayers(WidgetTester tester) async {
+      final container = await pumpCanvas(tester);
+      container.read(sessionsProvider.notifier)
+        ..openSession(
+          SkdDocument(
+            canvasWidth: 1920,
+            canvasHeight: 1080,
+            layers: [
+              Layer(id: 'bottom', name: 'bottom'),
+              Layer(id: 'middle', name: 'middle'),
+              Layer(id: 'top', name: 'top'),
+            ],
+          ),
+        )
+        ..setActiveLayer('middle');
+      await tester.pump();
+      return container;
+    }
+
+    testWidgets('the stack is split into three repaint boundaries', (
+      tester,
+    ) async {
+      await pumpThreeLayers(tester);
+
+      final labels = tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((p) => p.painter)
+          .whereType<LayerStackPainter>()
+          .map((p) => p.debugLabel)
+          .toSet();
+
+      expect(labels, containsAll(['below', 'active', 'above']));
+    });
+
+    testWidgets('the active slice holds only the active layer', (tester) async {
+      await pumpThreeLayers(tester);
+      expect(painterOf(tester).layers.single.id, 'middle');
+    });
+
+    testWidgets('only the active layer repaints while drawing', (tester) async {
+      await pumpThreeLayers(tester);
+      final page = tester.getCenter(find.byKey(_pageKey));
+
+      LayerStackPainter.resetPaintCounts();
+
+      final gesture = await tester.startGesture(page);
+      for (var i = 0; i < 12; i++) {
+        await gesture.moveBy(const Offset(14, 6));
+        await tester.pump();
+      }
+
+      final counts = LayerStackPainter.paintCounts;
+      expect(
+        counts['active'],
+        greaterThan(1),
+        reason: 'the live stroke must repaint its own layer',
+      );
+      expect(
+        counts['below'] ?? 0,
+        lessThanOrEqualTo(1),
+        reason: 'layers beneath the stroke must not re-rasterize',
+      );
+      expect(counts['above'] ?? 0, lessThanOrEqualTo(1));
+
+      await gesture.up();
+      await tester.pump();
+    });
+
+    testWidgets('a committed stroke does not repaint the other slices', (
+      tester,
+    ) async {
+      await pumpThreeLayers(tester);
+      final page = tester.getCenter(find.byKey(_pageKey));
+
+      final warmUp = await tester.startGesture(page);
+      await warmUp.moveBy(const Offset(20, 20));
+      await warmUp.up();
+      await tester.pump();
+
+      LayerStackPainter.resetPaintCounts();
+
+      final gesture = await tester.startGesture(page + const Offset(0, 40));
+      await gesture.moveBy(const Offset(20, 20));
+      await gesture.up();
+      await tester.pump();
+
+      expect(LayerStackPainter.paintCounts['below'] ?? 0, 0);
+      expect(LayerStackPainter.paintCounts['above'] ?? 0, 0);
+    });
+
+    testWidgets('the live stroke paints into the active slice, not on top', (
+      tester,
+    ) async {
+      await pumpThreeLayers(tester);
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(_pageKey)),
+      );
+      await tester.pump();
+
+      final all = tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((p) => p.painter)
+          .whereType<LayerStackPainter>();
+
+      for (final painter in all) {
+        if (painter.debugLabel == 'active') {
+          expect(painter.liveStroke, isNotNull);
+        } else {
+          expect(painter.liveStroke, isNull);
+        }
+      }
+
+      await gesture.up();
+      await tester.pump();
     });
   });
 }

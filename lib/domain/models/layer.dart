@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:inkpad/domain/models/bounds.dart';
 import 'package:inkpad/domain/models/canvas_element.dart';
 
@@ -43,7 +45,13 @@ class Layer {
     this.blendMode = LayerBlendMode.normal,
     List<CanvasElement> elements = const [],
   }) : assert(opacity >= 0.0 && opacity <= 1.0, 'opacity must be in 0..1'),
-       elements = List.unmodifiable(elements);
+       // Reuse the list when it is already one of ours, so `copyWith(name: …)`
+       // hands back the *same* element list. The renderer's layer cache keys on
+       // that identity: rebuilding the list here would throw away a cached
+       // image every time a layer is renamed or its opacity nudged.
+       elements = elements is UnmodifiableListView<CanvasElement>
+           ? elements
+           : UnmodifiableListView(List.of(elements));
 
   final String id;
   final String name;

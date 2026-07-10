@@ -1,27 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:inkpad/domain/models/models.dart';
-import 'package:inkpad/engine/renderer/variable_width.dart';
+import 'package:inkpad/engine/renderer/layer_cache.dart';
 
-/// Unpacks a 0xRRGGBBAA int, as stored on the models and in `.skd`, into a
-/// Flutter [Color], which is ARGB.
-Color colorFromRGBA(int rgba) => Color.fromARGB(
-  rgba & 0xFF,
-  (rgba >> 24) & 0xFF,
-  (rgba >> 16) & 0xFF,
-  (rgba >> 8) & 0xFF,
-);
+export 'package:inkpad/engine/renderer/layer_cache.dart'
+    show colorFromRGBA, paintStroke;
 
-/// Paints every committed element of a document, bottom layer first, plus the
-/// stroke currently under the pointer.
+/// Paints a whole document straight from its elements, with no layer cache.
 ///
-/// The live stroke is painted *inside* its layer rather than on top of
-/// everything. That is what makes the eraser correct: `BlendMode.clear` must
-/// only reach the layer it is drawn into, and a stroke painted over the whole
-/// document would punch through every layer beneath.
-///
-/// Naive: it repaints the whole document on every pointer event. Task 5.1
-/// replaces this with per-layer cached images, leaving only the active layer
-/// live.
+/// Used where a document is drawn once — PNG export (12.1), thumbnails (9.6),
+/// tests. The interactive canvas uses [LayerStackPainter] over a [LayerCache]
+/// instead, so that drawing does not re-rasterize every committed stroke.
 class DocumentPainter extends CustomPainter {
   const DocumentPainter({
     required this.document,
@@ -70,7 +58,7 @@ class DocumentPainter extends CustomPainter {
     for (final element in layer.elements) {
       switch (element) {
         case Stroke():
-          _paintStroke(canvas, element);
+          paintStroke(canvas, element);
         case Shape():
           // Task 8.2 renders shapes. Deliberately not a `default` case: the
           // sealed type must keep failing to compile when a variant is added.
@@ -78,30 +66,9 @@ class DocumentPainter extends CustomPainter {
       }
     }
 
-    if (live != null) _paintStroke(canvas, live);
+    if (live != null) paintStroke(canvas, live);
 
     canvas.restore();
-  }
-
-  void _paintStroke(Canvas canvas, Stroke stroke) {
-    if (stroke.points.isEmpty) return;
-
-    final paint = Paint()
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
-
-    if (stroke.isEraser) {
-      // Clears within this layer's offscreen buffer only. The colour is
-      // irrelevant; clear ignores it.
-      paint.blendMode = BlendMode.clear;
-    } else {
-      paint.color = colorFromRGBA(stroke.colorRGBA);
-    }
-
-    canvas.drawPath(
-      buildVariableWidthPath(stroke.points, stroke.baseWidth),
-      paint,
-    );
   }
 
   @override

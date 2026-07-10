@@ -24,6 +24,8 @@ reader must open it.
   stabilizer.
 - Brush toolbar: width slider, eight colour swatches, an HSV custom-colour
   picker with a recent-colours row, and a pen/eraser toggle.
+- Per-layer image caching with incremental append, and a three-way repaint
+  split so drawing repaints only the active layer.
 - Continuous integration on every push: formatting, static analysis, and tests.
 - Linux AppImage packaging, built and smoke-tested in CI on every push.
 - Tag-driven release workflow publishing the AppImage and a `SHA256SUMS` file.
