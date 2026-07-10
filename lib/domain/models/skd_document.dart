@@ -113,6 +113,51 @@ class SkdDocument {
     return copyWith(layers: next);
   }
 
+  /// A copy with [layer] inserted at [index], counting from the bottom.
+  ///
+  /// [index] may equal [layerCount], which puts the layer on top.
+  SkdDocument insertLayer(int index, Layer layer) {
+    if (index < 0 || index > layers.length) {
+      throw RangeError.range(index, 0, layers.length, 'index');
+    }
+    if (indexOfLayer(layer.id) != -1) {
+      throw ArgumentError.value(layer.id, 'layer.id', 'duplicate layer id');
+    }
+    return copyWith(layers: [...layers]..insert(index, layer));
+  }
+
+  /// A copy without the layer with [id].
+  ///
+  /// Throws [StateError] when it is the only layer: a document always has one.
+  /// Throws [ArgumentError] when no such layer exists.
+  SkdDocument removeLayer(String id) {
+    final index = indexOfLayer(id);
+    if (index == -1) {
+      throw ArgumentError.value(id, 'id', 'no such layer');
+    }
+    if (layers.length == 1) {
+      throw StateError('cannot remove the only layer of a document');
+    }
+    return copyWith(layers: [...layers]..removeAt(index));
+  }
+
+  /// A copy with the layer at [oldIndex] moved so it ends up at [newIndex] in
+  /// the returned list. Both indices address the *resulting* list, as with
+  /// `Layer.moveElement`.
+  SkdDocument moveLayer(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= layers.length) {
+      throw RangeError.range(oldIndex, 0, layers.length - 1, 'oldIndex');
+    }
+    if (newIndex < 0 || newIndex >= layers.length) {
+      throw RangeError.range(newIndex, 0, layers.length - 1, 'newIndex');
+    }
+    if (oldIndex == newIndex) return this;
+
+    final next = [...layers];
+    next.insert(newIndex, next.removeAt(oldIndex));
+    return copyWith(layers: next);
+  }
+
   SkdDocument copyWith({
     int? canvasWidth,
     int? canvasHeight,

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/domain/models/models.dart';
 import 'package:inkpad/engine/pointer_input.dart';
-import 'package:inkpad/engine/renderer/layer_cache.dart';
 import 'package:inkpad/engine/renderer/layer_stack_painter.dart';
 import 'package:inkpad/engine/smoothing.dart';
 import 'package:inkpad/engine/stabilizer.dart';
@@ -54,18 +53,10 @@ class CanvasView extends ConsumerStatefulWidget {
 }
 
 class _CanvasViewState extends ConsumerState<CanvasView> {
-  /// One rasterized image per layer. Owned here so it lives across rebuilds and
-  /// is disposed with the widget.
-  final LayerCache _cache = LayerCache();
-
-  @override
-  void dispose() {
-    _cache.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
+    // Shared with the layer panel's thumbnails; owned by the provider.
+    final cache = ref.watch(layerCacheProvider);
     final session = ref.watch(activeSessionProvider);
     final document = session.document;
     final points = ref.watch(currentStrokeProvider);
@@ -73,7 +64,7 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
     final tool = ref.watch(toolProvider);
 
     // A layer removed from the document must not keep holding its image.
-    _cache.retainOnly([for (final layer in document.layers) layer.id]);
+    cache.retainOnly([for (final layer in document.layers) layer.id]);
 
     // The live stroke is a real Stroke so it paints through exactly the code
     // that will paint it once committed — including the eraser's blend mode.
@@ -112,7 +103,7 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
             documentWidth: document.canvasWidth,
             documentHeight: document.canvasHeight,
             scale: scale,
-            cache: _cache,
+            cache: cache,
             liveStroke: live,
             debugLabel: label,
           );

@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:inkpad/domain/commands/commands.dart';
 import 'package:inkpad/domain/models/models.dart';
 import 'package:inkpad/state/document_session.dart';
+import 'package:uuid/uuid.dart';
 
 /// Every open document, plus which one is in front.
 ///
@@ -142,16 +144,100 @@ class SessionsNotifier extends Notifier<SessionsState> {
     state = state.copyWith(sessions: next);
   }
 
-  /// Adds [element] on top of the active layer of the active session.
-  ///
-  /// From Phase 6 onward this is reached through `AddElementCommand` rather
-  /// than called directly from UI code, so the change can be undone.
-  void addElementToActiveLayer(CanvasElement element) =>
-      _updateActive(state.activeSession.addElementToActiveLayer(element));
+  /// Runs [command] against the active session, recording it for undo.
+  void run(Command command) => _updateActive(state.activeSession.run(command));
+
+  /// Undoes the active session's most recent command.
+  void undo() => _updateActive(state.activeSession.undo());
+
+  /// Redoes the active session's most recently undone command.
+  void redo() => _updateActive(state.activeSession.redo());
+
+  /// Marks the active session as saved.
+  void markSaved() => _updateActive(state.activeSession.markSaved());
+
+  /// Adds [element] on top of the active layer of the active session, as an
+  /// undoable command.
+  void addElementToActiveLayer(CanvasElement element) => run(
+    AddElementCommand(
+      layerId: state.activeSession.activeLayerId,
+      element: element,
+    ),
+  );
 
   /// Makes [layerId] the active layer of the active session.
+  ///
+  /// Selecting a layer is a view concern, not a document change, so it is not
+  /// undoable.
   void setActiveLayer(String layerId) =>
       _updateActive(state.activeSession.withActiveLayer(layerId));
+
+  /// Adds an empty layer directly above the active one and selects it.
+  void addLayer({String? id, String? name}) {
+    final session = state.activeSession;
+    final index = session.document.indexOfLayer(session.activeLayerId) + 1;
+    final layer = Layer(
+      id: id ?? const Uuid().v4(),
+      name: name ?? 'Layer ${session.document.layerCount + 1}',
+    );
+
+    run(AddLayerCommand(layer: layer, index: index));
+    setActiveLayer(layer.id);
+  }
+
+  /// Deletes [layerId]. A document always keeps at least one layer, so deleting
+  /// the last one is refused.
+  void deleteLayer(String layerId) {
+    final document = state.activeSession.document;
+    if (document.layerCount == 1) {
+      throw StateError('cannot delete the only layer');
+    }
+    final index = document.indexOfLayer(layerId);
+    if (index == -1) {
+      throw ArgumentError.value(layerId, 'layerId', 'no such layer');
+    }
+    run(DeleteLayerCommand(layer: document.layers[index], index: index));
+  }
+
+  void renameLayer(String layerId, String name) {
+    final layer = _requireLayer(layerId);
+    if (layer.name == name) return;
+    run(
+      RenameLayerCommand(layerId: layerId, oldName: layer.name, newName: name),
+    );
+  }
+
+  void setLayerOpacity(String layerId, double opacity) {
+    final layer = _requireLayer(layerId);
+    if (layer.opacity == opacity) return;
+    run(
+      SetLayerOpacityCommand(
+        layerId: layerId,
+        oldOpacity: layer.opacity,
+        newOpacity: opacity,
+      ),
+    );
+  }
+
+  void toggleLayerVisibility(String layerId) {
+    final layer = _requireLayer(layerId);
+    run(SetLayerVisibilityCommand(layerId: layerId, visible: !layer.visible));
+  }
+
+  /// Moves a layer within the stack. Indices count from the bottom and address
+  /// the resulting list.
+  void reorderLayers(int oldIndex, int newIndex) {
+    if (oldIndex == newIndex) return;
+    run(ReorderLayerCommand(oldIndex: oldIndex, newIndex: newIndex));
+  }
+
+  Layer _requireLayer(String layerId) {
+    final layer = state.activeSession.document.layerById(layerId);
+    if (layer == null) {
+      throw ArgumentError.value(layerId, 'layerId', 'no such layer');
+    }
+    return layer;
+  }
 
   /// Swaps the active session's document wholesale, as Open and undo do.
   void replaceActiveDocument(SkdDocument document) =>

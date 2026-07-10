@@ -6,6 +6,7 @@
 export 'brush.dart';
 export 'current_stroke.dart';
 export 'document_session.dart';
+export 'layer_cache_provider.dart';
 export 'recent_colors.dart';
 export 'sessions_notifier.dart';
 export 'stabilizer_strength.dart';

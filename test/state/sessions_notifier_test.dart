@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:inkpad/domain/commands/commands.dart';
 import 'package:inkpad/domain/models/models.dart';
 import 'package:inkpad/state/state.dart';
 
@@ -278,6 +279,123 @@ void main() {
         () => read().sessions.add(DocumentSession.blank()),
         throwsUnsupportedError,
       );
+    });
+  });
+
+  group('undo and redo', () {
+    test('a fresh session is clean and has nothing to undo', () {
+      expect(read().activeSession.canUndo, isFalse);
+      expect(read().activeSession.canRedo, isFalse);
+      expect(read().activeSession.isDirty, isFalse);
+    });
+
+    test('drawing is undoable and makes the session dirty', () {
+      notifier().addElementToActiveLayer(strokeAt('s1', 0, 0));
+
+      expect(read().activeSession.canUndo, isTrue);
+      expect(read().activeSession.isDirty, isTrue);
+      expect(read().activeSession.document.elementCount, 1);
+    });
+
+    test('undo removes the stroke, redo restores it', () {
+      notifier().addElementToActiveLayer(strokeAt('s1', 0, 0));
+
+      notifier().undo();
+      expect(read().activeSession.document.elementCount, 0);
+      expect(read().activeSession.canRedo, isTrue);
+
+      notifier().redo();
+      expect(read().activeSession.document.findElement('s1'), isNotNull);
+      expect(read().activeSession.canRedo, isFalse);
+    });
+
+    test('a new action clears the redo stack', () {
+      notifier()
+        ..addElementToActiveLayer(strokeAt('s1', 0, 0))
+        ..undo();
+      expect(read().activeSession.canRedo, isTrue);
+
+      notifier().addElementToActiveLayer(strokeAt('s2', 5, 5));
+      expect(read().activeSession.canRedo, isFalse);
+      expect(read().activeSession.document.findElement('s1'), isNull);
+      expect(read().activeSession.document.findElement('s2'), isNotNull);
+    });
+
+    test('undo with nothing to undo is a no-op', () {
+      final before = read();
+      notifier().undo();
+      expect(read(), before);
+    });
+
+    test('redo with nothing to redo is a no-op', () {
+      final before = read();
+      notifier().redo();
+      expect(read(), before);
+    });
+
+    test('undoing several strokes peels them off newest first', () {
+      notifier()
+        ..addElementToActiveLayer(strokeAt('a', 0, 0))
+        ..addElementToActiveLayer(strokeAt('b', 1, 1))
+        ..addElementToActiveLayer(strokeAt('c', 2, 2));
+
+      notifier().undo();
+      expect(read().activeSession.document.findElement('c'), isNull);
+      expect(read().activeSession.document.findElement('b'), isNotNull);
+
+      notifier().undo();
+      expect(read().activeSession.document.findElement('b'), isNull);
+      expect(read().activeSession.document.findElement('a'), isNotNull);
+    });
+
+    test('markSaved clears dirty; undoing back to it clears it again', () {
+      notifier()
+        ..addElementToActiveLayer(strokeAt('a', 0, 0))
+        ..markSaved();
+      expect(read().activeSession.isDirty, isFalse);
+
+      notifier().addElementToActiveLayer(strokeAt('b', 1, 1));
+      expect(read().activeSession.isDirty, isTrue);
+
+      notifier().undo();
+      expect(read().activeSession.isDirty, isFalse);
+    });
+
+    test('undo history is per session', () {
+      final first = read().activeSessionId;
+      notifier().addElementToActiveLayer(strokeAt('in-first', 0, 0));
+
+      notifier().openBlankSession(id: 'b');
+      expect(
+        read().activeSession.canUndo,
+        isFalse,
+        reason: 'a new tab starts clean',
+      );
+
+      // Undoing in the new tab must not touch the first one.
+      notifier().undo();
+      expect(read().sessionById(first)!.document.elementCount, 1);
+
+      notifier().setActiveSession(first);
+      expect(read().activeSession.canUndo, isTrue);
+      notifier().undo();
+      expect(read().activeSession.document.elementCount, 0);
+      expect(read().sessionById('b')!.document.elementCount, 0);
+    });
+
+    test('run routes an arbitrary command through the stack', () {
+      final layerId = read().activeSession.activeLayerId;
+      notifier().run(
+        RenameLayerCommand(
+          layerId: layerId,
+          oldName: 'Layer 1',
+          newName: 'Sketch',
+        ),
+      );
+
+      expect(read().activeSession.activeLayer.name, 'Sketch');
+      notifier().undo();
+      expect(read().activeSession.activeLayer.name, 'Layer 1');
     });
   });
 }

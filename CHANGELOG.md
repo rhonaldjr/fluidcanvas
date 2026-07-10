@@ -26,6 +26,10 @@ reader must open it.
   picker with a recent-colours row, and a pen/eraser toggle.
 - Per-layer image caching with incremental append, and a three-way repaint
   split so drawing repaints only the active layer.
+- Undo/redo: a per-session command stack capped at 200, Edit-menu items naming
+  the command, and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y shortcuts.
+- Layer panel: add, delete, reorder by dragging, rename, opacity, visibility,
+  and live thumbnails. Every change is undoable.
 - Continuous integration on every push: formatting, static analysis, and tests.
 - Linux AppImage packaging, built and smoke-tested in CI on every push.
 - Tag-driven release workflow publishing the AppImage and a `SHA256SUMS` file.

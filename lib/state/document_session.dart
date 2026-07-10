@@ -1,3 +1,4 @@
+import 'package:inkpad/domain/commands/commands.dart';
 import 'package:inkpad/domain/models/models.dart';
 import 'package:uuid/uuid.dart';
 
@@ -15,7 +16,9 @@ class DocumentSession {
     required this.id,
     required this.document,
     required this.activeLayerId,
-  }) : assert(
+    CommandStack? commands,
+  }) : commands = commands ?? CommandStack(),
+       assert(
          document.indexOfLayer(activeLayerId) != -1,
          'activeLayerId must name a layer in the document',
        );
@@ -30,17 +33,61 @@ class DocumentSession {
         activeLayerId: document.layers.last.id,
       );
 
+  /// This session's undo/redo history. One stack per open document.
+
   /// A session over a blank default document.
   factory DocumentSession.blank({String? id, String? layerId}) =>
       DocumentSession.from(SkdDocument.newDefault(layerId: layerId), id: id);
 
   final String id;
   final SkdDocument document;
+  final CommandStack commands;
 
   /// The layer new elements are added to. Always names a layer in [document].
   final String activeLayerId;
 
   Layer get activeLayer => document.layerById(activeLayerId)!;
+
+  /// Whether anything has changed since this document was last saved.
+  bool get isDirty => commands.isDirty;
+
+  bool get canUndo => commands.canUndo;
+  bool get canRedo => commands.canRedo;
+
+  /// Runs [command], recording it so it can be undone.
+  DocumentSession run(Command command) =>
+      _withDocumentAndStack(command.apply(document), commands.push(command));
+
+  /// Takes back the most recent command. A no-op when there is nothing to undo.
+  DocumentSession undo() {
+    if (!commands.canUndo) return this;
+    final command = commands.nextUndo;
+    return _withDocumentAndStack(command.revert(document), commands.undo());
+  }
+
+  /// Re-applies the most recently undone command.
+  DocumentSession redo() {
+    if (!commands.canRedo) return this;
+    final command = commands.nextRedo;
+    return _withDocumentAndStack(command.apply(document), commands.redo());
+  }
+
+  /// Marks the current state as saved, clearing [isDirty].
+  DocumentSession markSaved() =>
+      _withDocumentAndStack(document, commands.markSaved());
+
+  DocumentSession _withDocumentAndStack(
+    SkdDocument document,
+    CommandStack commands,
+  ) => DocumentSession(
+    id: id,
+    document: document,
+    // A command may have removed the active layer; fall back to the top one.
+    activeLayerId: document.indexOfLayer(activeLayerId) != -1
+        ? activeLayerId
+        : document.layers.last.id,
+    commands: commands,
+  );
 
   /// A copy holding [document] instead.
   ///
@@ -52,6 +99,7 @@ class DocumentSession {
     activeLayerId: document.indexOfLayer(activeLayerId) != -1
         ? activeLayerId
         : document.layers.last.id,
+    commands: commands,
   );
 
   /// A copy with [layerId] active.
@@ -61,7 +109,12 @@ class DocumentSession {
     if (document.indexOfLayer(layerId) == -1) {
       throw ArgumentError.value(layerId, 'layerId', 'no such layer');
     }
-    return DocumentSession(id: id, document: document, activeLayerId: layerId);
+    return DocumentSession(
+      id: id,
+      document: document,
+      activeLayerId: layerId,
+      commands: commands,
+    );
   }
 
   /// A copy with [element] added on top of the active layer.
@@ -77,10 +130,11 @@ class DocumentSession {
       other is DocumentSession &&
           id == other.id &&
           document == other.document &&
-          activeLayerId == other.activeLayerId;
+          activeLayerId == other.activeLayerId &&
+          commands == other.commands;
 
   @override
-  int get hashCode => Object.hash(id, document, activeLayerId);
+  int get hashCode => Object.hash(id, document, activeLayerId, commands);
 
   @override
   String toString() =>

@@ -4,4 +4,5 @@ export 'app_menu_bar.dart';
 export 'app_shell.dart';
 export 'canvas_view.dart';
 export 'color_picker_dialog.dart';
+export 'layer_panel.dart';
 export 'toolbar_strip.dart';

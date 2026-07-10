@@ -58,17 +58,17 @@ This phase runs early on purpose: the release pipeline is easier to get right ag
 
 ## Phase 6 — Undo / Redo
 
-- [ ] **6.1 Command infrastructure.** `Command` interface (`apply(doc)`, `revert(doc)`), `CommandStack` with undo/redo stacks (cap 200). **One stack per `DocumentSession`**, not one globally — undo in one tab must never touch another. The session also exposes a `dirty` flag derived from whether any command has run since the last save. Unit tests, including that two sessions' stacks are independent.
-- [ ] **6.2 AddElementCommand.** Route stroke commit (pen and eraser) through it; Phase 8 reuses the same command for shapes. Tests: undo removes the element, redo restores it, new action clears redo stack.
-- [ ] **6.3 Undo/redo UI.** Edit-menu items + Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (and Ctrl+Y on Windows) via `Shortcuts`/`Actions`. Buttons disable when stacks are empty.
+- [x] **6.1 Command infrastructure.** `Command` interface (`apply(doc)`, `revert(doc)`), `CommandStack` with undo/redo stacks (cap 200). **One stack per `DocumentSession`**, not one globally — undo in one tab must never touch another. The session also exposes a `dirty` flag derived from whether any command has run since the last save. Unit tests, including that two sessions' stacks are independent.
+- [x] **6.2 AddElementCommand.** Route stroke commit (pen and eraser) through it; Phase 8 reuses the same command for shapes. Tests: undo removes the element, redo restores it, new action clears redo stack.
+- [x] **6.3 Undo/redo UI.** Edit-menu items + Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (and Ctrl+Y on Windows) via `Shortcuts`/`Actions`. Buttons disable when stacks are empty.
 
 ## Phase 7 — Layers
 
-- [ ] **7.1 Layer panel UI.** Right-side panel listing layers top-to-bottom, showing name, visibility eye toggle, and active-layer highlight. Clicking selects the active layer.
-- [ ] **7.2 Add/delete layer commands.** `AddLayerCommand`, `DeleteLayerCommand` (deleting the last layer is disallowed). Panel buttons + tests including undo behavior.
-- [ ] **7.3 Reorder layers.** Drag-to-reorder in the panel via `ReorderableListView`, as `ReorderLayerCommand`. Tests.
-- [ ] **7.4 Layer opacity + rename.** Opacity slider per layer and rename via double-click, both as commands. Tests.
-- [ ] **7.5 Layer thumbnails.** 48px live thumbnail per layer in the panel, regenerated (throttled, e.g. 500ms after last change) from the layer cache image.
+- [x] **7.1 Layer panel UI.** Right-side panel listing layers top-to-bottom, showing name, visibility eye toggle, and active-layer highlight. Clicking selects the active layer.
+- [x] **7.2 Add/delete layer commands.** `AddLayerCommand`, `DeleteLayerCommand` (deleting the last layer is disallowed). Panel buttons + tests including undo behavior.
+- [x] **7.3 Reorder layers.** Drag-to-reorder in the panel via `ReorderableListView`, as `ReorderLayerCommand`. Tests.
+- [x] **7.4 Layer opacity + rename.** Opacity slider per layer, committed as one command on release rather than one per pixel of the drag, and rename via double-click on the layer's name. Both as commands. Tests.
+- [x] **7.5 Layer thumbnails.** 48px live thumbnail per layer in the panel, drawn straight from the shared layer cache image. No throttle needed: a thumbnail is a scaled blit of an image that already exists, and that image only changes when the layer's elements do.
 
 ## Phase 8 — Shapes & Selection
 
