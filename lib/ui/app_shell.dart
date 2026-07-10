@@ -3,13 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/state/state.dart';
 import 'package:inkpad/ui/app_menu_bar.dart';
 import 'package:inkpad/ui/canvas_view.dart';
+import 'package:inkpad/ui/file_actions.dart';
 import 'package:inkpad/ui/layer_panel.dart';
 import 'package:inkpad/ui/status_bar.dart';
+import 'package:inkpad/ui/tab_strip.dart';
 import 'package:inkpad/ui/toolbar_strip.dart';
 
-/// Top-level window layout: menu bar across the top, tool strip down the left,
-/// canvas filling the rest. The tab strip slots between the menu bar and the
-/// canvas in task 12.1; the layer panel lands to the right in task 7.1.
+/// Top-level window layout: menu bar across the top, then the tab strip, then
+/// the tool strip down the left with the canvas and layer panel beside it.
 class AppShell extends ConsumerWidget {
   const AppShell({super.key});
 
@@ -51,6 +52,35 @@ class AppShell extends ConsumerWidget {
               toEnd: intent.toEnd,
             ),
           ),
+
+          NewTabIntent: CallbackAction<NewTabIntent>(
+            onInvoke: (_) => sessions.openBlankSession(),
+          ),
+          CloseTabIntent: CallbackAction<CloseTabIntent>(
+            onInvoke: (_) => closeSessionInteractively(
+              context,
+              ref,
+              sessionId: ref.read(sessionsProvider).activeSessionId,
+            ),
+          ),
+          CycleTabIntent: CallbackAction<CycleTabIntent>(
+            onInvoke: (intent) => sessions.cycleSession(intent.delta),
+          ),
+          GoToTabIntent: CallbackAction<GoToTabIntent>(
+            onInvoke: (intent) => intent.last
+                ? sessions.activateLast()
+                : sessions.activateAt(intent.index),
+          ),
+          NewDocumentIntent: CallbackAction<NewDocumentIntent>(
+            onInvoke: (_) => newSession(context, ref),
+          ),
+          OpenDocumentIntent: CallbackAction<OpenDocumentIntent>(
+            onInvoke: (_) => openSessionsFromPicker(context, ref),
+          ),
+          SaveDocumentIntent: CallbackAction<SaveDocumentIntent>(
+            onInvoke: (intent) =>
+                saveActiveSession(context, ref, saveAs: intent.saveAs),
+          ),
         },
         child: Focus(
           autofocus: true,
@@ -58,6 +88,7 @@ class AppShell extends ConsumerWidget {
             body: Column(
               children: [
                 const AppMenuBar(),
+                const TabStrip(),
                 Expanded(
                   child: Row(
                     // Without stretch the strip shrink-wraps its content and

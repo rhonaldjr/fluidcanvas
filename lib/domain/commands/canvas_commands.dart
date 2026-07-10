@@ -9,6 +9,11 @@ import 'package:inkpad/domain/models/models.dart';
 const int kMinCanvasWidth = 320;
 const int kMinCanvasHeight = 200;
 
+/// Largest canvas the New-document dialog will accept. A cached layer image is
+/// four bytes a pixel, so 8192² is already a quarter of a gigabyte per layer.
+const int kMaxCanvasWidth = 8192;
+const int kMaxCanvasHeight = 8192;
+
 /// Resizes the canvas and scales every element with it.
 ///
 /// Scaling is **uniform**, by `min(newW/oldW, newH/oldH)` about the old canvas

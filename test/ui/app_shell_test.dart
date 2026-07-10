@@ -41,26 +41,26 @@ void main() {
     expect(edit.left, greaterThan(file.right));
   });
 
-  testWidgets('menu items are present but disabled', (tester) async {
+  testWidgets('the File menu is wired up, bar the export Phase 15 adds', (
+    tester,
+  ) async {
     await _pumpShell(tester);
 
     await tester.tap(find.text('File'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Save'), findsOneWidget);
-    expect(find.text('Export PNG…'), findsOneWidget);
-
-    final items = tester.widgetList<MenuItemButton>(
-      find.byType(MenuItemButton),
-    );
-    expect(items, isNotEmpty);
-    for (final item in items) {
-      expect(
-        item.onPressed,
-        isNull,
-        reason: 'menu items must have no action yet',
-      );
+    for (final key in ['menu-new', 'menu-open', 'menu-save', 'menu-save-as']) {
+      final item = tester.widget<MenuItemButton>(find.byKey(Key(key)));
+      expect(item.onPressed, isNotNull, reason: key);
     }
+
+    final export = tester.widget<MenuItemButton>(
+      find.ancestor(
+        of: find.text('Export PNG…'),
+        matching: find.byType(MenuItemButton),
+      ),
+    );
+    expect(export.onPressed, isNull, reason: 'task 15.1 wires this up');
   });
 
   testWidgets('the toolbar strip spans the full height below the menu bar', (

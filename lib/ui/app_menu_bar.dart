@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 import 'package:inkpad/state/state.dart';
+import 'package:inkpad/ui/file_actions.dart';
 
 /// Undo the active session's most recent command.
 class UndoIntent extends Intent {
@@ -39,6 +41,48 @@ class NudgeIntent extends Intent {
 
   final double dx;
   final double dy;
+}
+
+/// Open a new tab. Ctrl/Cmd+T.
+class NewTabIntent extends Intent {
+  const NewTabIntent();
+}
+
+/// Close the active tab. Ctrl/Cmd+W.
+class CloseTabIntent extends Intent {
+  const CloseTabIntent();
+}
+
+/// Step [delta] tabs to the right, wrapping. Ctrl+Tab, Ctrl+Shift+Tab.
+class CycleTabIntent extends Intent {
+  const CycleTabIntent(this.delta);
+
+  final int delta;
+}
+
+/// Jump to the nth tab. Ctrl/Cmd+1..8; 9 means "the last one".
+class GoToTabIntent extends Intent {
+  const GoToTabIntent(this.index, {this.last = false});
+
+  final int index;
+  final bool last;
+}
+
+/// File → New. Ctrl/Cmd+N.
+class NewDocumentIntent extends Intent {
+  const NewDocumentIntent();
+}
+
+/// File → Open. Ctrl/Cmd+O.
+class OpenDocumentIntent extends Intent {
+  const OpenDocumentIntent();
+}
+
+/// File → Save, and Save As with Shift.
+class SaveDocumentIntent extends Intent {
+  const SaveDocumentIntent({this.saveAs = false});
+
+  final bool saveAs;
 }
 
 /// Move the selected element within its layer's z-order.
@@ -92,6 +136,51 @@ const Map<ShortcutActivator, Intent> kUndoRedoShortcuts = {
     10,
   ),
 
+  SingleActivator(LogicalKeyboardKey.keyT, control: true): NewTabIntent(),
+  SingleActivator(LogicalKeyboardKey.keyT, meta: true): NewTabIntent(),
+  SingleActivator(LogicalKeyboardKey.keyW, control: true): CloseTabIntent(),
+  SingleActivator(LogicalKeyboardKey.keyW, meta: true): CloseTabIntent(),
+  SingleActivator(LogicalKeyboardKey.tab, control: true): CycleTabIntent(1),
+  SingleActivator(LogicalKeyboardKey.tab, control: true, shift: true):
+      CycleTabIntent(-1),
+
+  SingleActivator(LogicalKeyboardKey.digit1, control: true): GoToTabIntent(0),
+  SingleActivator(LogicalKeyboardKey.digit2, control: true): GoToTabIntent(1),
+  SingleActivator(LogicalKeyboardKey.digit3, control: true): GoToTabIntent(2),
+  SingleActivator(LogicalKeyboardKey.digit4, control: true): GoToTabIntent(3),
+  SingleActivator(LogicalKeyboardKey.digit5, control: true): GoToTabIntent(4),
+  SingleActivator(LogicalKeyboardKey.digit6, control: true): GoToTabIntent(5),
+  SingleActivator(LogicalKeyboardKey.digit7, control: true): GoToTabIntent(6),
+  SingleActivator(LogicalKeyboardKey.digit8, control: true): GoToTabIntent(7),
+  // Ctrl+9 is "the last tab" everywhere else, however many there are.
+  SingleActivator(LogicalKeyboardKey.digit9, control: true): GoToTabIntent(
+    8,
+    last: true,
+  ),
+  SingleActivator(LogicalKeyboardKey.digit1, meta: true): GoToTabIntent(0),
+  SingleActivator(LogicalKeyboardKey.digit2, meta: true): GoToTabIntent(1),
+  SingleActivator(LogicalKeyboardKey.digit3, meta: true): GoToTabIntent(2),
+  SingleActivator(LogicalKeyboardKey.digit4, meta: true): GoToTabIntent(3),
+  SingleActivator(LogicalKeyboardKey.digit5, meta: true): GoToTabIntent(4),
+  SingleActivator(LogicalKeyboardKey.digit6, meta: true): GoToTabIntent(5),
+  SingleActivator(LogicalKeyboardKey.digit7, meta: true): GoToTabIntent(6),
+  SingleActivator(LogicalKeyboardKey.digit8, meta: true): GoToTabIntent(7),
+  SingleActivator(LogicalKeyboardKey.digit9, meta: true): GoToTabIntent(
+    8,
+    last: true,
+  ),
+
+  SingleActivator(LogicalKeyboardKey.keyN, control: true): NewDocumentIntent(),
+  SingleActivator(LogicalKeyboardKey.keyN, meta: true): NewDocumentIntent(),
+  SingleActivator(LogicalKeyboardKey.keyO, control: true): OpenDocumentIntent(),
+  SingleActivator(LogicalKeyboardKey.keyO, meta: true): OpenDocumentIntent(),
+  SingleActivator(LogicalKeyboardKey.keyS, control: true): SaveDocumentIntent(),
+  SingleActivator(LogicalKeyboardKey.keyS, meta: true): SaveDocumentIntent(),
+  SingleActivator(LogicalKeyboardKey.keyS, control: true, shift: true):
+      SaveDocumentIntent(saveAs: true),
+  SingleActivator(LogicalKeyboardKey.keyS, meta: true, shift: true):
+      SaveDocumentIntent(saveAs: true),
+
   SingleActivator(LogicalKeyboardKey.bracketRight, control: true):
       ReorderSelectionIntent(forward: true),
   SingleActivator(LogicalKeyboardKey.bracketLeft, control: true):
@@ -104,11 +193,9 @@ const Map<ShortcutActivator, Intent> kUndoRedoShortcuts = {
 
 /// The File/Edit menu bar.
 ///
-/// File items are still disabled: Phase 13 wires them up.
+/// Export PNG is still disabled: task 15.1 wires it up.
 class AppMenuBar extends ConsumerWidget {
   const AppMenuBar({super.key});
-
-  static const _fileItems = ['New', 'Open…', 'Save', 'Save As…', 'Export PNG…'];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -137,9 +224,50 @@ class AppMenuBar extends ConsumerWidget {
           children: [
             SubmenuButton(
               menuChildren: [
-                for (final item in _fileItems)
-                  // Null onPressed renders the item disabled.
-                  MenuItemButton(onPressed: null, child: Text(item)),
+                MenuItemButton(
+                  key: const Key('menu-new'),
+                  shortcut: const SingleActivator(
+                    LogicalKeyboardKey.keyN,
+                    control: true,
+                  ),
+                  onPressed: () => newSession(context, ref),
+                  child: const Text('New'),
+                ),
+                MenuItemButton(
+                  key: const Key('menu-open'),
+                  shortcut: const SingleActivator(
+                    LogicalKeyboardKey.keyO,
+                    control: true,
+                  ),
+                  onPressed: () => openSessionsFromPicker(context, ref),
+                  child: const Text('Open…'),
+                ),
+                _RecentFilesMenu(host: context, hostRef: ref),
+                MenuItemButton(
+                  key: const Key('menu-save'),
+                  shortcut: const SingleActivator(
+                    LogicalKeyboardKey.keyS,
+                    control: true,
+                  ),
+                  onPressed: () => saveActiveSession(context, ref),
+                  child: const Text('Save'),
+                ),
+                MenuItemButton(
+                  key: const Key('menu-save-as'),
+                  shortcut: const SingleActivator(
+                    LogicalKeyboardKey.keyS,
+                    control: true,
+                    shift: true,
+                  ),
+                  onPressed: () =>
+                      saveActiveSession(context, ref, saveAs: true),
+                  child: const Text('Save As…'),
+                ),
+                // Null onPressed renders the item disabled. Task 15.1.
+                const MenuItemButton(
+                  onPressed: null,
+                  child: Text('Export PNG…'),
+                ),
               ],
               child: const Text('File'),
             ),
@@ -182,6 +310,42 @@ class AppMenuBar extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// File → Open Recent. Says so when the list is empty or still loading.
+///
+/// Opening a file outlives this menu: choosing an item pops the menu, which
+/// disposes this widget's element, and a disposed `WidgetRef` throws the
+/// moment the `await` inside [openSessionFromPath] resumes. So the callbacks
+/// use the menu bar's own `ref` and `context`, which stay mounted; this
+/// widget's `ref` is only for watching the list.
+class _RecentFilesMenu extends ConsumerWidget {
+  const _RecentFilesMenu({required this.host, required this.hostRef});
+
+  final BuildContext host;
+  final WidgetRef hostRef;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recent = ref.watch(recentFilesProvider).value ?? const <String>[];
+
+    return SubmenuButton(
+      key: const Key('menu-recent'),
+      menuChildren: [
+        if (recent.isEmpty)
+          const MenuItemButton(onPressed: null, child: Text('No recent files'))
+        else
+          for (final path in recent)
+            MenuItemButton(
+              key: Key('recent-$path'),
+              onPressed: () => openSessionFromPath(host, hostRef, path),
+              // The full path in a tooltip; the basename is what identifies it.
+              child: Tooltip(message: path, child: Text(p.basename(path))),
+            ),
+      ],
+      child: const Text('Open Recent'),
     );
   }
 }

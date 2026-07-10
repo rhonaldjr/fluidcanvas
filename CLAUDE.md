@@ -10,7 +10,9 @@ Strokes, shapes and text are peers: all are `CanvasElement`s, all live in a sing
 
 **Text** uses system fonts and stores the family name, so a file opened without that family rewraps with different glyphs. Rendering is therefore *not* reproducible across machines: never assert text pixels in a test. A text box has a fixed size and the text shrinks to fit it (down to 25%, then overflows); the fit scale is always derived from the layout, never stored. A **corner** handle scales a box and its `fontSize` together; a **side** handle changes one axis of the box alone, so the text rewraps at the same size. Flutter cannot enumerate or query installed fonts: `engine/system_fonts.dart` asks fontconfig and detects a missing family by *measuring* it against a family that certainly does not exist.
 
-The app is **multi-document**: several documents are open at once, each in its own tab. The tab UI arrives in Phase 12, but the state is multi-document from task 2.5.
+The app is **multi-document**: several documents are open at once, each in its own tab, each with its own file path, dirty flag, undo stack, selection and canvas.
+
+Anything that touches the disk or opens a native dialog goes through the `FileService` seam in `state/file_service.dart`, so tests never open a GTK file chooser or write to the developer's home directory. Two traps live here: a `WidgetRef` from a widget that a menu pop disposes throws the moment an `await` resumes (use the menu bar's `ref`), and `path_provider`'s channel never answers under `flutter_test` — awaiting it **hangs** rather than failing, which is why the autosave scratch directory is injected.
 
 - **Stack:** Flutter (Dart) targeting Windows, macOS, and Linux desktop
 - **Rendering:** Flutter `CustomPainter` / `Canvas` (Skia-backed)
@@ -54,8 +56,11 @@ lib/
     shape_paths.dart        #   pure (ShapeType, Rect) -> ui.Path
     renderer/               #   CustomPainter implementations, layer compositing
   ui/                       # widgets: canvas view, tab strip, selection overlay, toolbars, panels, dialogs
+    file_actions.dart       #   Save/Open/New/close+quit prompts, shared by menu and shortcuts
   state/                    # Riverpod providers/notifiers
     session.dart            #   DocumentSession: one open document + its own state
+    file_service.dart       #   the only door to the disk and to native dialogs
+    autosave.dart           #   3-minute sidecars; recovery on open
 test/                       # mirrors lib/ structure
 ```
 

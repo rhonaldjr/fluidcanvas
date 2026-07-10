@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Teaches the freedesktop MIME database about .skd, so a double-clicked
+  drawing opens in InkPad and shows the document icon.
+
+  Install with:
+    xdg-mime install --novendor inkpad-skd.xml
+    xdg-icon-resource install --context mimetypes --size 256 \
+        application-x-skd.png application-x-skd
+
+  The magic matches the ZIP local-file header followed by the uncompressed
+  "mimetype" entry the format spec requires as the first entry — the same
+  trick ODF and EPUB use, and the reason mimetype is stored, not deflated.
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-skd">
+    <comment>InkPad drawing</comment>
+    <glob pattern="*.skd"/>
+    <magic priority="60">
+      <match type="string" value="PK\003\004" offset="0">
+        <match type="string" value="mimetype" offset="30">
+          <match type="string" value="application/x-skd" offset="38"/>
+        </match>
+      </match>
+    </magic>
+    <icon name="application-x-skd"/>
+  </mime-type>
+</mime-info>

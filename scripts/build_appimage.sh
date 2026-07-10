@@ -38,6 +38,12 @@ cp -r "${BUNDLE}/." "${APPDIR}/usr/bin/"
 install -Dm644 packaging/linux/inkpad.desktop \
   "${APPDIR}/usr/share/applications/inkpad.desktop"
 
+# The .skd association. An AppImage cannot register a MIME type by existing —
+# desktop integration is the host's job (appimaged, or `xdg-mime install`) —
+# but shipping the definition and the document icon is what lets it.
+install -Dm644 packaging/linux/inkpad-skd.xml \
+  "${APPDIR}/usr/share/mime/packages/inkpad-skd.xml"
+
 # Ship every hicolor size, not just the 256 that linuxdeploy needs: desktop
 # environments pick per context (16px in a window list, 512px in an app grid),
 # and a missing size gets scaled from whatever is nearest, which looks muddy.

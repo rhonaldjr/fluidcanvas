@@ -10,7 +10,49 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  // Kept so the "inkpad/window" channel can retitle the window as the active
+  // tab changes. Flutter exposes no Dart API for this on Linux.
+  GtkWindow* window;
+  GtkHeaderBar* header_bar;
+  FlMethodChannel* window_channel;
 };
+
+// The channel Dart uses to set the window title. See lib/app/window_title.dart.
+static const char kWindowChannel[] = "inkpad/window";
+
+static void set_window_title(MyApplication* self, const gchar* title) {
+  if (self->header_bar != nullptr) {
+    gtk_header_bar_set_title(self->header_bar, title);
+  }
+  if (self->window != nullptr) {
+    gtk_window_set_title(self->window, title);
+  }
+}
+
+static void window_method_call_cb(FlMethodChannel* channel,
+                                  FlMethodCall* method_call,
+                                  gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  g_autoptr(FlMethodResponse) response = nullptr;
+
+  if (g_strcmp0(fl_method_call_get_name(method_call), "setTitle") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    if (fl_value_get_type(args) == FL_VALUE_TYPE_STRING) {
+      set_window_title(self, fl_value_get_string(args));
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+    } else {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "bad-args", "setTitle expects a string", nullptr));
+    }
+  } else {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+
+  g_autoptr(GError) error = nullptr;
+  if (!fl_method_call_respond(method_call, response, &error)) {
+    g_warning("Failed to respond to %s: %s", kWindowChannel, error->message);
+  }
+}
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
@@ -42,12 +84,14 @@ static void my_application_activate(GApplication* application) {
     }
   }
 #endif
+  self->window = window;
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
     gtk_header_bar_set_title(header_bar, "InkPad");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
+    self->header_bar = header_bar;
   } else {
     gtk_window_set_title(window, "InkPad");
   }
@@ -74,6 +118,14 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  self->window_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)), kWindowChannel,
+      FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(self->window_channel,
+                                            window_method_call_cb, self,
+                                            nullptr);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -121,6 +173,7 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  g_clear_object(&self->window_channel);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 

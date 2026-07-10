@@ -75,15 +75,33 @@ bool _sessionsEqual(List<DocumentSession> a, List<DocumentSession> b) {
 
 /// Owns the open documents. The one place tabs are created and destroyed.
 class SessionsNotifier extends Notifier<SessionsState> {
+  /// Counts every untitled document this run has produced, so `Untitled 2`
+  /// stays `Untitled 2` after `Untitled 1` is closed.
+  int _untitledCount = 0;
+
   @override
   SessionsState build() {
-    final session = DocumentSession.blank();
+    final session = DocumentSession.blank(untitledIndex: ++_untitledCount);
     return SessionsState(sessions: [session], activeSessionId: session.id);
   }
 
   /// Opens [document] in a new session, makes it active, and returns its id.
-  String openSession(SkdDocument document, {String? id}) {
-    final session = DocumentSession.from(document, id: id);
+  ///
+  /// A session with a [filePath] takes its title from the file and starts with
+  /// fit-to-window off; one without gets the next `Untitled N`.
+  String openSession(
+    SkdDocument document, {
+    String? id,
+    String? filePath,
+    bool? fitToWindow,
+  }) {
+    final session = DocumentSession.from(
+      document,
+      id: id,
+      filePath: filePath,
+      fitToWindow: fitToWindow,
+      untitledIndex: filePath == null ? ++_untitledCount : 0,
+    );
     state = SessionsState(
       sessions: [...state.sessions, session],
       activeSessionId: session.id,
@@ -109,7 +127,7 @@ class SessionsNotifier extends Notifier<SessionsState> {
     }
 
     if (state.sessionCount == 1) {
-      final session = DocumentSession.blank();
+      final session = DocumentSession.blank(untitledIndex: ++_untitledCount);
       state = SessionsState(sessions: [session], activeSessionId: session.id);
       return;
     }
@@ -131,6 +149,78 @@ class SessionsNotifier extends Notifier<SessionsState> {
       throw ArgumentError.value(id, 'id', 'no such session');
     }
     state = state.copyWith(activeSessionId: id);
+  }
+
+  /// Focuses the session [delta] tabs away, wrapping at either end.
+  void cycleSession(int delta) {
+    final count = state.sessionCount;
+    if (count < 2) return;
+    final at = state.indexOfSession(state.activeSessionId);
+    // Dart's % on a negative left operand still returns a non-negative result.
+    activateAt((at + delta) % count);
+  }
+
+  /// Focuses the tab at [index]. Out-of-range indices are ignored, so
+  /// Ctrl+7 with three tabs open does nothing rather than throwing.
+  void activateAt(int index) {
+    if (index < 0 || index >= state.sessionCount) return;
+    state = state.copyWith(activeSessionId: state.sessions[index].id);
+  }
+
+  /// Focuses the last tab, wherever it is. What Ctrl+9 means everywhere else.
+  void activateLast() => activateAt(state.sessionCount - 1);
+
+  /// Moves the tab at [from] so it sits at [to], keeping the same session
+  /// active however the strip is rearranged.
+  void moveSession(int from, int to) {
+    final sessions = [...state.sessions];
+    if (from < 0 || from >= sessions.length) {
+      throw RangeError.index(from, sessions, 'from');
+    }
+    if (to < 0 || to >= sessions.length) {
+      throw RangeError.index(to, sessions, 'to');
+    }
+    if (from == to) return;
+    sessions.insert(to, sessions.removeAt(from));
+    state = state.copyWith(sessions: sessions);
+  }
+
+  /// The open session already showing [path], or `null`.
+  DocumentSession? sessionForPath(String path) {
+    for (final session in state.sessions) {
+      if (session.filePath == path) return session;
+    }
+    return null;
+  }
+
+  /// Records that the session with [id] now lives at [path].
+  ///
+  /// [markClean] is false when the document changed while it was being
+  /// written: it now has a home, but what is on screen is not what is on disk.
+  void setFilePath(String id, String path, {bool markClean = true}) {
+    final session = state.sessionById(id);
+    if (session == null) return;
+    final moved = session.withFilePath(path);
+    _replaceSession(markClean ? moved.markSaved() : moved);
+  }
+
+  /// Marks a just-opened session as holding recovered work.
+  ///
+  /// It has a file path, but what is on screen came from the autosave sidecar
+  /// and has never been written into that file — so it must count as dirty.
+  void markRecovered(String id) {
+    final session = state.sessionById(id);
+    if (session == null || session.isDirty) return;
+    _replaceSession(session.markUnsaved());
+  }
+
+  /// Swaps in a new value for a session that is already open, active or not.
+  void _replaceSession(DocumentSession session) {
+    final index = state.indexOfSession(session.id);
+    if (index == -1) return;
+    final next = [...state.sessions];
+    next[index] = session;
+    state = state.copyWith(sessions: next);
   }
 
   /// Replaces the active session with [session]. Its id must not change.

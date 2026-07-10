@@ -92,6 +92,18 @@ class CommandStack {
     savedDepth: undoStack.length,
   );
 
+  /// Marks the current state as *not* the saved one, without inventing a
+  /// command to undo.
+  ///
+  /// A document recovered from an autosave sidecar is in exactly this state:
+  /// nothing was done to it in this session, yet what is on screen has never
+  /// been written to its file.
+  CommandStack markUnsaved() => CommandStack(
+    undoStack: undoStack,
+    redoStack: redoStack,
+    savedDepth: _unreachable,
+  );
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
