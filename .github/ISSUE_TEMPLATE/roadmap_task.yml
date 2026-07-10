@@ -1,0 +1,26 @@
+name: Claim a roadmap task
+description: Tell others you're picking up a task so nobody duplicates the work.
+labels: [roadmap]
+body:
+  - type: input
+    id: task
+    attributes:
+      label: Task number
+      description: For example, 2.1 or 8.5.
+      placeholder: "2.1"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: deps
+    attributes:
+      label: Dependencies
+      options:
+        - label: Every task this one depends on is already checked off in the roadmap.
+          required: true
+
+  - type: textarea
+    id: approach
+    attributes:
+      label: How do you plan to approach it?
+      description: Optional, but worth writing down if the task leaves room for interpretation.

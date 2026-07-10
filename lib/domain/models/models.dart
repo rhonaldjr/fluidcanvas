@@ -1,4 +1,7 @@
 // Pure Dart domain models. NO Flutter imports.
 //
-// CanvasElement, Stroke, StrokePoint, Shape, Layer, SkdDocument, Brush.
-// Populated by Phase 1.
+// Stroke and Shape live inside canvas_element.dart as parts, because Dart
+// requires sealed subtypes to share a library.
+export 'bounds.dart';
+export 'canvas_element.dart';
+export 'stroke_point.dart';

@@ -1,0 +1,66 @@
+name: Build AppImage
+
+# Reusable: called by ci.yml on every push and by release.yml on a tag, so the
+# binary users download is built by exactly the code CI has been exercising.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.44.6
+
+jobs:
+  build:
+    name: Linux AppImage
+    # Pinned, not `ubuntu-latest`: the glibc of the build machine is the floor
+    # for every distro that can run the AppImage. Bumping this strands users on
+    # older distros. If GitHub retires this image, moving to 24.04 raises that
+    # floor — a deliberate decision, not a maintenance chore.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # librsvg/gdk-pixbuf/dpkg-dev are needed by linuxdeploy-plugin-gtk, not
+      # by Flutter itself.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+            dpkg-dev patchelf desktop-file-utils file \
+            librsvg2-dev libgdk-pixbuf2.0-dev
+
+      # The AppImage bundles ~126 libraries but deliberately leaves the font
+      # stack and GL drivers to the host, so the smoke test needs them present.
+      - name: Install runtime dependencies for the smoke test
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            xvfb libfuse2 libegl1 libgles2 libgl1-mesa-dri
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Linux release
+        run: flutter build linux --release
+
+      - name: Package AppImage
+        run: ./scripts/build_appimage.sh
+
+      # A packaging job that emits a binary which cannot start is worse than no
+      # job at all: it publishes broken releases with a green check.
+      - name: Smoke-test the AppImage
+        run: ./scripts/smoke_test_appimage.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InkPad-x86_64.AppImage
+          path: dist/InkPad-x86_64.AppImage
+          if-no-files-found: error

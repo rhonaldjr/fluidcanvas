@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// Default page size in document space (logical pixels at 100% zoom).
-/// Phase 1.4 replaces these with values read from `SkdDocument`.
+/// Task 2.4 replaces these with values read from `SkdDocument`.
 const double kDefaultCanvasWidth = 1920;
 const double kDefaultCanvasHeight = 1080;
 
@@ -12,8 +12,9 @@ const double _viewportMargin = 32;
 
 /// The gray backdrop with the white document page centered on it.
 ///
-/// The page is scaled to fit the viewport, never magnified past 100%. Phase 10
-/// replaces this fixed fit-to-viewport scale with a real pan/zoom transform.
+/// The page is scaled to fit the viewport, never magnified past 100%. Phase 12
+/// replaces this fixed fit-to-viewport scale with a per-session pan/zoom
+/// transform.
 class CanvasView extends StatelessWidget {
   const CanvasView({super.key});
 

@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 /// Width of the left tool strip, in screen pixels.
 const double kToolbarStripWidth = 48;
 
-/// The left tool strip. Empty until Phase 3.2 adds brush controls and
-/// Phase 7.1 adds the shape tools.
+/// The left tool strip. Empty until task 4.2 adds brush controls and
+/// task 8.1 adds the shape tools.
 class ToolbarStrip extends StatelessWidget {
   const ToolbarStrip({super.key});
 

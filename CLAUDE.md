@@ -8,6 +8,8 @@ Guidance for Claude Code when working in this repository.
 
 Strokes and shapes are peers: both are `CanvasElement`s, both live in a single ordered list per layer (bottom to top), and both share one selection/transform system. Shapes are **parametric** — resizing a rectangle changes its width and height, it never resamples pixels.
 
+The app is **multi-document**: several documents are open at once, each in its own tab. The tab UI arrives in Phase 10, but the state is multi-document from task 2.5.
+
 - **Stack:** Flutter (Dart) targeting Windows, macOS, and Linux desktop
 - **Rendering:** Flutter `CustomPainter` / `Canvas` (Skia-backed)
 - **File format:** `.skd` — ZIP container with JSON manifest + binary stroke data (spec below)
@@ -47,14 +49,16 @@ lib/
     hit_test.dart           #   pure element hit-testing
     shape_paths.dart        #   pure (ShapeType, Rect) -> ui.Path
     renderer/               #   CustomPainter implementations, layer compositing
-  ui/                       # widgets: canvas view, selection overlay, toolbars, panels, dialogs
+  ui/                       # widgets: canvas view, tab strip, selection overlay, toolbars, panels, dialogs
   state/                    # Riverpod providers/notifiers
+    session.dart            #   DocumentSession: one open document + its own state
 test/                       # mirrors lib/ structure
 ```
 
 **Rules:**
 - `domain/` and `format/` must stay free of Flutter imports so they are unit-testable without a widget harness.
 - All mutations to the document go through command objects in `domain/commands/` (enables undo/redo). Never mutate `SkdDocument` directly from UI code.
+- **There is no "the" document.** Everything scoped to one open document — the `SkdDocument`, its command stack, its selection, its viewport transform, its file path, its dirty flag — lives on a `DocumentSession`, keyed by session id. Resolve it from the active session; never introduce a global singleton for any of these. What *is* global: the active tool, brush settings, and recent colors, so switching tabs doesn't change the brush you're holding.
 - Coordinates in the document model are in **document space** (logical pixels at 100% zoom). The canvas widget owns the document↔screen transform. Hit-testing and transform math run in document space; only the selection overlay's handle *sizes* are in screen space.
 - `CanvasElement` is a sealed type. Adding a variant means updating the codec, the renderer, and hit-testing — the compiler will tell you where via exhaustive switches. Never add an element variant without a codec round-trip test.
 - Element order within `Layer.elements` is z-order, bottom to top. Do not infer z-order from anything else.

@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest something InkPad should do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [roadmap](https://github.com/rhonaldjr/fluidcanvas/blob/main/Roadmap.md)
+        first. Most planned work is already listed there, including the
+        "Later / Ideas" parking lot at the bottom.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation you're in, not just the feature you want.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should InkPad do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Including doing nothing, or how other tools handle it.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you file
+      options:
+        - label: I checked the roadmap and this isn't already planned.
+          required: true
+        - label: This is not a web or mobile feature. InkPad is desktop-only by design.
+          required: true

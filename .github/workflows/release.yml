@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+# Needed to create the GitHub Release and upload assets.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Same reusable workflow CI runs on every push, so the released binary is
+  # built and smoke-tested by identical code.
+  build:
+    uses: ./.github/workflows/build-appimage.yml
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: InkPad-x86_64.AppImage
+          path: dist
+
+      - name: Derive version from tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          # Anything below 1.0, or carrying a pre-release suffix like
+          # 0.2.0-beta.1, is published as a GitHub pre-release.
+          if [[ "${version}" == 0.* || "${version}" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A tag that disagrees with pubspec ships a binary that misreports its
+      # own version. Fail before anything is published.
+      - name: Check the tag matches pubspec.yaml
+        run: ./scripts/check_version.sh "${{ steps.version.outputs.version }}"
+
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          chmod +x InkPad-x86_64.AppImage
+          sha256sum InkPad-x86_64.AppImage > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Extract release notes
+        run: ./scripts/release_notes.sh "${{ steps.version.outputs.version }}" > release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/InkPad-x86_64.AppImage \
+            dist/SHA256SUMS \
+            --title "InkPad ${{ steps.version.outputs.version }}" \
+            --notes-file release-notes.md \
+            ${{ steps.version.outputs.prerelease == 'true' && '--prerelease' || '' }}

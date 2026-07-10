@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=InkPad
+GenericName=Sketching and Diagramming
+Comment=Freehand sketching and light diagramming
+Exec=inkpad %f
+Icon=inkpad
+Terminal=false
+Categories=Graphics;2DGraphics;RasterGraphics;
+Keywords=draw;sketch;diagram;paint;
+StartupWMClass=inkpad

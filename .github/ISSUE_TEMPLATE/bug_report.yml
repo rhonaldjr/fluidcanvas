@@ -1,0 +1,64 @@
+name: Bug report
+description: Something in InkPad behaves incorrectly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        InkPad is pre-alpha: the app opens a window and nothing is drawable yet.
+        Please check the [roadmap](https://github.com/rhonaldjr/fluidcanvas/blob/main/Roadmap.md)
+        before filing — unchecked tasks are unimplemented features, not bugs.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open InkPad
+        2. ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: InkPad version or commit
+      description: The release tag, or the commit SHA if you built from source.
+    validations:
+      required: true
+
+  - type: textarea
+    id: flutter-doctor
+    attributes:
+      label: Output of `flutter --version`
+      description: Only if you built from source.
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: |
+        Logs, screenshots, or a `.skd` file that triggers the problem.
+        Drag files in to attach them.

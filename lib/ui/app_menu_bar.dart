@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 /// The File/Edit menu bar.
 ///
-/// Every item is disabled: this is layout only. Phase 5.3 wires up Edit, and
-/// Phase 9 wires up File.
+/// Every item is disabled: this is layout only. Task 6.3 wires up Edit, and
+/// Phase 11 wires up File.
 class AppMenuBar extends StatelessWidget {
   const AppMenuBar({super.key});
 

@@ -1,2 +1,2 @@
 // CustomPainter implementations and layer compositing.
-// Populated by Phases 2, 4 and 7.
+// Populated by Phases 3, 5 and 8.
