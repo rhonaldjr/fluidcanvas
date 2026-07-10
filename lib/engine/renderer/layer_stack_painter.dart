@@ -97,7 +97,28 @@ class LayerStackPainter extends CustomPainter {
       ..color = Color.fromARGB((layer.opacity * 255).round(), 0, 0, 0)
       ..filterQuality = FilterQuality.medium;
 
-    if (live == null && shape == null && connector == null) {
+    // Text glyphs do not survive `Picture.toImageSync`, which the layer cache
+    // uses — paths (strokes, shapes) rasterize fine, but `drawParagraph` comes
+    // out blank on the real renderer (the offscreen path used by `flutter test`
+    // is the exception, which is why unit tests never caught this). So a layer
+    // holding any text is painted **live**, in z-order, exactly like the export
+    // path does. Layers without text keep the fast cached image.
+    final hasText = layerHasText(layer);
+    final hasLive = live != null || shape != null || connector != null;
+
+    if (hasText) {
+      canvas.saveLayer(null, composite);
+      for (final element in layer.elements) {
+        paintElement(canvas, element, siblings: layer.elements);
+      }
+      if (live != null) paintStroke(canvas, live);
+      if (shape != null) paintShape(canvas, shape);
+      if (connector != null) paintConnector(canvas, connector, layer.elements);
+      canvas.restore();
+      return;
+    }
+
+    if (!hasLive) {
       if (layer.elements.isEmpty) return;
       canvas.drawImage(
         cache.imageFor(layer, width: documentWidth, height: documentHeight),

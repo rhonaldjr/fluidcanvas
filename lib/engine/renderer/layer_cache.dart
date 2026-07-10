@@ -211,6 +211,20 @@ void paintText(
   canvas.restore();
 }
 
+/// Whether [layer] holds any text — directly or inside a group.
+///
+/// Text glyphs do not survive `Picture.toImageSync`, which the layer cache
+/// uses, so a layer that answers true must be painted live rather than served
+/// from the cache. See [LayerStackPainter].
+bool layerHasText(Layer layer) => layer.elements.any(elementHasText);
+
+/// Whether [element] is, or contains, a text element.
+bool elementHasText(CanvasElement element) => switch (element) {
+  TextElement() => true,
+  Group() => element.leaves.any((e) => e is TextElement),
+  Stroke() || Shape() || Connector() => false,
+};
+
 /// Draws one element.
 ///
 /// [siblings] is the list [element] lives in. Only a [Connector] needs it: its

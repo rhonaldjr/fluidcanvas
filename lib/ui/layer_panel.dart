@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/domain/models/models.dart';
+import 'package:inkpad/engine/renderer/layer_cache.dart'
+    show layerHasText, paintElement;
 import 'package:inkpad/state/state.dart';
 
 /// Width of the right-hand layer panel, in screen pixels.
@@ -290,17 +292,64 @@ class LayerThumbnail extends ConsumerWidget {
       child: layer.isEmpty
           ? null
           : CustomPaint(
-              painter: _ThumbnailPainter(
-                image: cache.imageFor(
-                  layer,
-                  width: document.canvasWidth,
-                  height: document.canvasHeight,
-                ),
-                opacity: layer.visible ? layer.opacity : 0.25,
-              ),
+              // Text does not survive the toImageSync cache, so a layer with
+              // any text is drawn live in the thumbnail too.
+              painter: layerHasText(layer)
+                  ? _LiveThumbnailPainter(
+                      layer: layer,
+                      documentWidth: document.canvasWidth,
+                      documentHeight: document.canvasHeight,
+                      opacity: layer.visible ? layer.opacity : 0.25,
+                    )
+                  : _ThumbnailPainter(
+                      image: cache.imageFor(
+                        layer,
+                        width: document.canvasWidth,
+                        height: document.canvasHeight,
+                      ),
+                      opacity: layer.visible ? layer.opacity : 0.25,
+                    ),
             ),
     );
   }
+}
+
+/// Draws a layer's elements straight into the thumbnail, for layers whose text
+/// the cached image would drop.
+class _LiveThumbnailPainter extends CustomPainter {
+  const _LiveThumbnailPainter({
+    required this.layer,
+    required this.documentWidth,
+    required this.documentHeight,
+    required this.opacity,
+  });
+
+  final Layer layer;
+  final int documentWidth;
+  final int documentHeight;
+  final double opacity;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (documentWidth <= 0) return;
+    canvas
+      ..saveLayer(
+        Offset.zero & size,
+        Paint()..color = Color.fromARGB((opacity * 255).round(), 0, 0, 0),
+      )
+      ..scale(size.width / documentWidth);
+    for (final element in layer.elements) {
+      paintElement(canvas, element, siblings: layer.elements);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_LiveThumbnailPainter old) =>
+      !identical(old.layer.elements, layer.elements) ||
+      old.opacity != opacity ||
+      old.documentWidth != documentWidth ||
+      old.documentHeight != documentHeight;
 }
 
 class _ThumbnailPainter extends CustomPainter {

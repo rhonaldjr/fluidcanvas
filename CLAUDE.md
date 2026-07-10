@@ -246,5 +246,6 @@ A connector's `boundIndex` is an index into **its own container's** element list
 ## Performance Notes
 
 - Target: no visible lag while drawing at 120Hz input. Build the in-progress stroke incrementally; never repaint all layers per pointer event.
-- Composite finished layers into cached `ui.Image`s (`Picture.toImage`); only the active stroke repaints live.
+- Composite finished layers into cached `ui.Image`s (`Picture.toImageSync`); only the active stroke repaints live.
+- **`Picture.toImageSync` does not rasterize text glyphs on the real renderer** — paths (strokes, shapes) survive it, but `drawParagraph` comes out blank. `flutter test`'s offscreen rasterizer is the exception: it *does* capture text, so unit tests never catch this. Therefore a layer holding any text (directly or inside a group — see `layerHasText`) is painted **live** by `LayerStackPainter` and the layer-panel thumbnail, bypassing the cache; only text-free layers use the cached image. Never route text through a `toImageSync` image.
 - Stroke smoothing runs incrementally on the input stream, not as a post-pass over the whole stroke.
