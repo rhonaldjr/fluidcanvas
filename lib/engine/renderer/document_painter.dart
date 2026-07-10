@@ -56,14 +56,7 @@ class DocumentPainter extends CustomPainter {
     );
 
     for (final element in layer.elements) {
-      switch (element) {
-        case Stroke():
-          paintStroke(canvas, element);
-        case Shape():
-          paintShape(canvas, element);
-        case TextElement():
-          paintText(canvas, element);
-      }
+      paintElement(canvas, element, siblings: layer.elements);
     }
 
     if (live != null) paintStroke(canvas, live);

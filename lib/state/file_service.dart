@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,11 @@ const XTypeGroup kSkdTypeGroup = XTypeGroup(
   extensions: [kSkdExtension],
 );
 
+const XTypeGroup kPngTypeGroup = XTypeGroup(
+  label: 'PNG image',
+  extensions: ['png'],
+);
+
 /// Everything the app does that touches the disk or a native dialog.
 ///
 /// One seam, so a widget test can drive Save and Open without a GTK file
@@ -28,6 +34,12 @@ abstract interface class FileService {
 
   /// Asks what to open. Empty when the user cancels.
   Future<List<String>> pickOpenPaths();
+
+  /// Asks where to export a PNG, or `null` when the user cancels.
+  Future<String?> pickExportPath({required String suggestedName});
+
+  /// Writes raw bytes to [path] — an exported PNG, not a document.
+  Future<void> writeBytes(String path, Uint8List bytes);
 
   /// Writes [document] to [path], replacing whatever was there.
   Future<void> write(String path, SkdDocument document);
@@ -66,6 +78,21 @@ class PlatformFileService implements FileService {
     final files = await openFiles(acceptedTypeGroups: const [kSkdTypeGroup]);
     return [for (final file in files) file.path];
   }
+
+  @override
+  Future<String?> pickExportPath({required String suggestedName}) async {
+    final location = await getSaveLocation(
+      suggestedName: suggestedName,
+      acceptedTypeGroups: const [kPngTypeGroup],
+    );
+    if (location == null) return null;
+    final path = location.path;
+    return path.toLowerCase().endsWith('.png') ? path : '$path.png';
+  }
+
+  @override
+  Future<void> writeBytes(String path, Uint8List bytes) =>
+      File(path).writeAsBytes(bytes, flush: true);
 
   @override
   Future<void> write(String path, SkdDocument document) async {

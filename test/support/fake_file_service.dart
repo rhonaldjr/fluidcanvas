@@ -19,6 +19,9 @@ class FakeFileService implements FileService {
   /// What the open picker returns. Empty means the user cancelled.
   List<String> openPaths;
 
+  /// What the PNG export picker returns. `null` means the user cancelled.
+  String? exportPath;
+
   /// Written files, by path.
   final Map<String, Uint8List> files = {};
 
@@ -29,6 +32,7 @@ class FakeFileService implements FileService {
   final List<String> suggestedNames = [];
   int saveCalls = 0;
   int openCalls = 0;
+  int exportCalls = 0;
 
   /// When set, [write] throws it — a full disk, a read-only volume.
   Object? writeError;
@@ -64,6 +68,20 @@ class FakeFileService implements FileService {
   Future<List<String>> pickOpenPaths() async {
     openCalls++;
     return openPaths;
+  }
+
+  @override
+  Future<String?> pickExportPath({required String suggestedName}) async {
+    exportCalls++;
+    suggestedNames.add(suggestedName);
+    return exportPath;
+  }
+
+  @override
+  Future<void> writeBytes(String path, Uint8List bytes) async {
+    if (writeError != null) throw writeError!;
+    files[path] = bytes;
+    times[path] = DateTime.utc(2026, 1, 1);
   }
 
   @override

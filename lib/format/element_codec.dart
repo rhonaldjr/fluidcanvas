@@ -14,7 +14,19 @@ abstract final class ElementType {
   static const int stroke = 0;
   static const int shape = 1;
   static const int text = 2;
+  static const int connector = 3;
+  static const int group = 4;
 }
+
+/// A connector end's `kind` byte.
+abstract final class ConnectorEndKind {
+  static const int free = 0;
+  static const int bound = 1;
+}
+
+/// The index a bound end writes when the element it names is not among its
+/// siblings — which the writer treats as a bug, and the reader as a free end.
+const int kNoBinding = 0xFFFFFFFF;
 
 /// Encodes a layer's elements into the binary blob stored at
 /// `elements/<layer-uuid>.bin`.
@@ -27,25 +39,48 @@ Uint8List encodeElements(List<CanvasElement> elements) {
     ..uint32(elements.length);
 
   for (final element in elements) {
-    switch (element) {
-      case Stroke():
-        out
-          ..uint8(ElementType.stroke)
-          ..reserved(3);
-        _writeStroke(out, element);
-      case Shape():
-        out
-          ..uint8(ElementType.shape)
-          ..reserved(3);
-        _writeShape(out, element);
-      case TextElement():
-        out
-          ..uint8(ElementType.text)
-          ..reserved(3);
-        _writeText(out, element);
-    }
+    _writeElement(out, element, elements);
   }
   return out.takeBytes();
+}
+
+/// Writes one element record: type, three reserved bytes, then the body.
+///
+/// [siblings] is the list [element] lives in, needed only by a [Connector]: a
+/// bound end is stored as the **index** of what it binds to, because ids are
+/// regenerated on load and the format may not reference one.
+void _writeElement(
+  _ByteWriter out,
+  CanvasElement element,
+  List<CanvasElement> siblings,
+) {
+  switch (element) {
+    case Stroke():
+      out
+        ..uint8(ElementType.stroke)
+        ..reserved(3);
+      _writeStroke(out, element);
+    case Shape():
+      out
+        ..uint8(ElementType.shape)
+        ..reserved(3);
+      _writeShape(out, element);
+    case TextElement():
+      out
+        ..uint8(ElementType.text)
+        ..reserved(3);
+      _writeText(out, element);
+    case Connector():
+      out
+        ..uint8(ElementType.connector)
+        ..reserved(3);
+      _writeConnector(out, element, siblings);
+    case Group():
+      out
+        ..uint8(ElementType.group)
+        ..reserved(3);
+      _writeGroup(out, element);
+  }
 }
 
 /// Decodes a blob written by [encodeElements].
@@ -67,7 +102,29 @@ List<CanvasElement> decodeElements(
   }
 
   final count = input.uint32();
+  final elements = _readElements(input, count, newId);
+
+  if (input.remaining != 0) {
+    throw SkdFormatException(
+      '${input.remaining} trailing bytes after $count elements',
+    );
+  }
+  return elements;
+}
+
+/// Reads [count] elements, then resolves the connector bindings among them.
+///
+/// Two passes, because a connector may bind to an element that comes after it
+/// in z-order — the file is written bottom to top, and nothing says the arrow
+/// is above both boxes it joins.
+List<CanvasElement> _readElements(
+  _ByteReader input,
+  int count,
+  String Function() newId,
+) {
   final elements = <CanvasElement>[];
+  final bindings = <int, (int, int)>{};
+
   for (var i = 0; i < count; i++) {
     final type = input.uint8();
     input.skip(3);
@@ -79,6 +136,12 @@ List<CanvasElement> decodeElements(
         elements.add(_readShape(input, newId()));
       case ElementType.text:
         elements.add(_readText(input, newId()));
+      case ElementType.connector:
+        final (connector, start, end) = _readConnector(input, newId());
+        bindings[elements.length] = (start, end);
+        elements.add(connector);
+      case ElementType.group:
+        elements.add(_readGroup(input, newId));
       default:
         // Bodies are variable-length, so an unknown type makes the rest of the
         // blob unparseable. Rejecting beats guessing.
@@ -86,12 +149,168 @@ List<CanvasElement> decodeElements(
     }
   }
 
-  if (input.remaining != 0) {
-    throw SkdFormatException(
-      '${input.remaining} trailing bytes after $count elements',
+  return _resolveBindings(elements, bindings);
+}
+
+/// Turns the stored indices back into element ids.
+///
+/// An index that names nothing — out of range, or the connector itself — is a
+/// corrupt file. It becomes a free end at the origin rather than a crash: a
+/// connector in the wrong place beats refusing to open the drawing.
+List<CanvasElement> _resolveBindings(
+  List<CanvasElement> elements,
+  Map<int, (int, int)> bindings,
+) {
+  if (bindings.isEmpty) return elements;
+
+  String? idAt(int index, int self) {
+    if (index == kNoBinding || index < 0 || index >= elements.length) {
+      return null;
+    }
+    if (index == self) return null; // A connector cannot bind to itself.
+    if (elements[index] is Connector) return null;
+    return elements[index].id;
+  }
+
+  for (final entry in bindings.entries) {
+    final at = entry.key;
+    final connector = elements[at] as Connector;
+    final (startIndex, endIndex) = entry.value;
+
+    final startId = idAt(startIndex, at);
+    final endId = idAt(endIndex, at);
+
+    elements[at] = connector.copyWith(
+      start: startId == null ? connector.start : ConnectorEnd.bound(startId),
+      end: endId == null ? connector.end : ConnectorEnd.bound(endId),
     );
   }
   return elements;
+}
+
+void _writeConnector(
+  _ByteWriter out,
+  Connector connector,
+  List<CanvasElement> siblings,
+) {
+  out
+    ..uint8(connector.strokeStyle.value)
+    ..uint8(connector.startArrow ? 1 : 0)
+    ..uint8(connector.endArrow ? 1 : 0)
+    ..reserved(1)
+    ..uint32(connector.strokeColorRGBA)
+    ..float32(connector.strokeWidth);
+
+  _writeConnectorEnd(out, connector.start, siblings);
+  _writeConnectorEnd(out, connector.end, siblings);
+}
+
+void _writeConnectorEnd(
+  _ByteWriter out,
+  ConnectorEnd end,
+  List<CanvasElement> siblings,
+) {
+  if (!end.isBound) {
+    out
+      ..uint8(ConnectorEndKind.free)
+      ..reserved(3)
+      ..float32(end.x!)
+      ..float32(end.y!)
+      ..uint32(kNoBinding);
+    return;
+  }
+
+  final index = siblings.indexWhere((e) => e.id == end.elementId);
+  if (index == -1) {
+    // Bound to something that is not a sibling. The model should not allow it;
+    // write a free end at the origin rather than a dangling index.
+    out
+      ..uint8(ConnectorEndKind.free)
+      ..reserved(3)
+      ..float32(0)
+      ..float32(0)
+      ..uint32(kNoBinding);
+    return;
+  }
+
+  out
+    ..uint8(ConnectorEndKind.bound)
+    ..reserved(3)
+    // A bound end has no coordinates of its own; the slots stay, so both kinds
+    // of end are the same size and the body's length does not depend on them.
+    ..float32(0)
+    ..float32(0)
+    ..uint32(index);
+}
+
+/// Returns the connector with **free** ends, plus the two stored indices.
+/// [_resolveBindings] turns those into ids once every sibling has been read.
+(Connector, int, int) _readConnector(_ByteReader input, String id) {
+  final styleValue = input.uint8();
+  final startArrow = input.uint8() != 0;
+  final endArrow = input.uint8() != 0;
+  input.skip(1);
+
+  final StrokeStyle style;
+  try {
+    style = StrokeStyle.fromValue(styleValue);
+  } on ArgumentError catch (e) {
+    throw SkdFormatException('${e.message} ($styleValue)');
+  }
+
+  final strokeColorRGBA = input.uint32();
+  final strokeWidth = input.float32();
+
+  final (start, startIndex) = _readConnectorEnd(input);
+  final (end, endIndex) = _readConnectorEnd(input);
+
+  return (
+    Connector(
+      id: id,
+      start: start,
+      end: end,
+      strokeColorRGBA: strokeColorRGBA,
+      strokeWidth: _positive(strokeWidth, 'connector strokeWidth'),
+      strokeStyle: style,
+      startArrow: startArrow,
+      endArrow: endArrow,
+    ),
+    startIndex,
+    endIndex,
+  );
+}
+
+(ConnectorEnd, int) _readConnectorEnd(_ByteReader input) {
+  final kind = input.uint8();
+  input.skip(3);
+  final x = input.float32();
+  final y = input.float32();
+  final index = input.uint32();
+
+  if (kind == ConnectorEndKind.bound) {
+    // Placeholder: the caller rebinds it once the siblings are known.
+    return (ConnectorEnd.free(x, y), index);
+  }
+  if (kind != ConnectorEndKind.free) {
+    throw SkdFormatException('unknown connector end kind $kind');
+  }
+  return (ConnectorEnd.free(x, y), kNoBinding);
+}
+
+void _writeGroup(_ByteWriter out, Group group) {
+  out.uint32(group.children.length);
+  for (final child in group.children) {
+    // Children bind among themselves, not to the layer around them.
+    _writeElement(out, child, group.children);
+  }
+}
+
+Group _readGroup(_ByteReader input, String Function() newId) {
+  final count = input.uint32();
+  if (count < 2) {
+    throw SkdFormatException('a group holds $count children; two is the least');
+  }
+  return Group(id: newId(), children: _readElements(input, count, newId));
 }
 
 void _writeStroke(_ByteWriter out, Stroke stroke) {
@@ -139,7 +358,11 @@ void _writeShape(_ByteWriter out, Shape shape) {
   out
     ..uint8(box.type.value)
     ..uint8(box.strokeStyle.value)
-    ..reserved(2)
+    // v2 spends the first of v1's two reserved bytes on the render style. A v1
+    // reader ignores reserved bytes, so it draws the shape precisely rather
+    // than failing — the drawing is all there, just not wobbly.
+    ..uint8(box.renderStyle.value)
+    ..reserved(1)
     ..float32(box.x)
     ..float32(box.y)
     ..float32(box.w)
@@ -148,13 +371,15 @@ void _writeShape(_ByteWriter out, Shape shape) {
     ..uint32(box.strokeColorRGBA)
     ..uint32(box.fillColorRGBA)
     ..float32(box.strokeWidth)
-    ..uint32(0); // seed, reserved for rough rendering
+    ..uint32(box.seed);
 }
 
 Shape _readShape(_ByteReader input, String id) {
   final typeValue = input.uint8();
   final styleValue = input.uint8();
-  input.skip(2);
+  // A v1 file wrote zero here, which is exactly ShapeRenderStyle.precise.
+  final renderStyle = ShapeRenderStyle.fromValue(input.uint8());
+  input.skip(1);
 
   final ShapeType type;
   final StrokeStyle style;
@@ -173,7 +398,7 @@ Shape _readShape(_ByteReader input, String id) {
   final strokeColorRGBA = input.uint32();
   final fillColorRGBA = input.uint32();
   final strokeWidth = input.float32();
-  input.uint32(); // seed
+  final seed = input.uint32();
 
   return Shape(
     id: id,
@@ -187,6 +412,8 @@ Shape _readShape(_ByteReader input, String id) {
     fillColorRGBA: fillColorRGBA,
     strokeWidth: _positive(strokeWidth, 'shape strokeWidth'),
     strokeStyle: style,
+    renderStyle: renderStyle,
+    seed: seed,
   );
 }
 

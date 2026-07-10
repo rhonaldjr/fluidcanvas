@@ -135,23 +135,43 @@ class StyleElementsCommand extends _TransformElementsCommand {
     this.fillColorRGBA,
     this.strokeWidth,
     this.strokeStyle,
+    this.renderStyle,
   });
 
   final int? strokeColorRGBA;
   final int? fillColorRGBA;
   final double? strokeWidth;
   final StrokeStyle? strokeStyle;
+  final ShapeRenderStyle? renderStyle;
 
   @override
   String get label => 'Change Style';
 
   @override
   CanvasElement transform(CanvasElement element) => switch (element) {
+    // A shape that becomes rough needs a seed. Derived from its id rather
+    // than drawn at random, or a redo would wobble differently from the apply
+    // it is meant to reproduce.
     Shape() => element.copyWith(
       strokeColorRGBA: strokeColorRGBA,
       fillColorRGBA: fillColorRGBA,
       strokeWidth: strokeWidth,
       strokeStyle: strokeStyle,
+      renderStyle: renderStyle,
+      seed: renderStyle == ShapeRenderStyle.rough && element.seed == 0
+          ? seedFromId(element.id)
+          : null,
+    ),
+    // A connector takes the stroke colour, width and dash of the shape bar,
+    // which are the only properties it shares with a shape.
+    Connector() => element.copyWith(
+      strokeColorRGBA: strokeColorRGBA,
+      strokeWidth: strokeWidth,
+      strokeStyle: strokeStyle,
+    ),
+    // Restyling a group restyles what is inside it.
+    Group() => element.copyWith(
+      children: [for (final child in element.children) transform(child)],
     ),
     // Strokes and text have their own controls; the shape style bar is not
     // theirs to change.
@@ -254,10 +274,25 @@ class StyleTextElementCommand extends Command {
 class DeleteElementsCommand extends Command {
   DeleteElementsCommand({
     required List<({String layerId, int index, CanvasElement element})> removed,
-  }) : removed = List.unmodifiable(removed);
+    List<CanvasElement> frozenBefore = const [],
+    List<CanvasElement> frozenAfter = const [],
+  }) : removed = List.unmodifiable(removed),
+       frozenBefore = List.unmodifiable(frozenBefore),
+       frozenAfter = List.unmodifiable(frozenAfter),
+       assert(
+         frozenBefore.length == frozenAfter.length,
+         'every frozen connector needs its before and after',
+       );
 
   /// Captured before deletion, ordered bottom-first within each layer.
   final List<({String layerId, int index, CanvasElement element})> removed;
+
+  /// Connectors that survive but bound to something being deleted, as they
+  /// were and as they become: a bound end stops following and stays where it
+  /// stood. Captured rather than recomputed, so undo restores the binding
+  /// exactly.
+  final List<CanvasElement> frozenBefore;
+  final List<CanvasElement> frozenAfter;
 
   @override
   String get label =>
@@ -265,7 +300,11 @@ class DeleteElementsCommand extends Command {
 
   @override
   SkdDocument apply(SkdDocument document) {
-    var next = document;
+    // Freeze first: the frozen positions were measured while the elements
+    // being deleted were still there.
+    var next = frozenAfter.isEmpty
+        ? document
+        : replaceElements(document, frozenAfter);
     for (final entry in removed) {
       final layer = next.layerById(entry.layerId);
       if (layer == null) {
@@ -288,7 +327,8 @@ class DeleteElementsCommand extends Command {
       }
       next = next.replaceLayer(layer.insertElement(entry.index, entry.element));
     }
-    return next;
+    // The elements are back, so the connectors may bind to them again.
+    return frozenBefore.isEmpty ? next : replaceElements(next, frozenBefore);
   }
 }
 

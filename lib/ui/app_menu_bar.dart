@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:inkpad/engine/view_transform.dart';
 import 'package:path/path.dart' as p;
 import 'package:inkpad/state/state.dart';
 import 'package:inkpad/ui/file_actions.dart';
+import 'package:inkpad/ui/preferences_dialog.dart';
+import 'package:inkpad/ui/shortcuts_dialog.dart';
 
 /// Undo the active session's most recent command.
 class UndoIntent extends Intent {
@@ -68,6 +71,44 @@ class GoToTabIntent extends Intent {
   final bool last;
 }
 
+/// Group the selection, or ungroup the selected groups.
+class GroupIntent extends Intent {
+  const GroupIntent({required this.group});
+
+  final bool group;
+}
+
+/// Pick a tool by its letter: V, B, E, R, O, L, A, D.
+class SelectToolIntent extends Intent {
+  const SelectToolIntent(this.tool);
+
+  final Tool tool;
+}
+
+/// Nudge the brush width one step: `[` thinner, `]` thicker.
+class BrushWidthIntent extends Intent {
+  const BrushWidthIntent(this.delta);
+
+  final double delta;
+}
+
+/// Show the keyboard shortcuts reference.
+class ShowShortcutsIntent extends Intent {
+  const ShowShortcutsIntent();
+}
+
+/// Zoom the active document in or out about the viewport centre.
+class ZoomIntent extends Intent {
+  const ZoomIntent(this.factor);
+
+  final double factor;
+}
+
+/// Put the whole page back in the viewport. Ctrl/Cmd+0.
+class ResetViewIntent extends Intent {
+  const ResetViewIntent();
+}
+
 /// File → New. Ctrl/Cmd+N.
 class NewDocumentIntent extends Intent {
   const NewDocumentIntent();
@@ -93,12 +134,12 @@ class ReorderSelectionIntent extends Intent {
   final bool toEnd;
 }
 
-/// Keyboard shortcuts for undo and redo.
+/// Every keyboard shortcut the app binds. The Help dialog documents them.
 ///
 /// Control and Meta are both bound rather than switched on the platform: a
 /// Linux user on an Apple keyboard, and the widget tests, both work either way,
 /// and neither combination means anything else here.
-const Map<ShortcutActivator, Intent> kUndoRedoShortcuts = {
+const Map<ShortcutActivator, Intent> kAppShortcuts = {
   SingleActivator(LogicalKeyboardKey.keyZ, control: true): UndoIntent(),
   SingleActivator(LogicalKeyboardKey.keyZ, meta: true): UndoIntent(),
   SingleActivator(LogicalKeyboardKey.keyZ, control: true, shift: true):
@@ -168,6 +209,53 @@ const Map<ShortcutActivator, Intent> kUndoRedoShortcuts = {
   SingleActivator(LogicalKeyboardKey.digit9, meta: true): GoToTabIntent(
     8,
     last: true,
+  ),
+
+  // Single letters pick a tool. They are suppressed while a text box is being
+  // edited — see [AppShell] — or typing "bold" would swap tools four times.
+  SingleActivator(LogicalKeyboardKey.keyV): SelectToolIntent(Tool.select),
+  SingleActivator(LogicalKeyboardKey.keyB): SelectToolIntent(Tool.pen),
+  SingleActivator(LogicalKeyboardKey.keyE): SelectToolIntent(Tool.eraser),
+  SingleActivator(LogicalKeyboardKey.keyR): SelectToolIntent(Tool.rectangle),
+  SingleActivator(LogicalKeyboardKey.keyO): SelectToolIntent(Tool.ellipse),
+  SingleActivator(LogicalKeyboardKey.keyL): SelectToolIntent(Tool.line),
+  SingleActivator(LogicalKeyboardKey.keyA): SelectToolIntent(Tool.arrow),
+  SingleActivator(LogicalKeyboardKey.keyD): SelectToolIntent(Tool.diamond),
+  SingleActivator(LogicalKeyboardKey.keyT): SelectToolIntent(Tool.text),
+
+  SingleActivator(LogicalKeyboardKey.keyC): SelectToolIntent(Tool.connector),
+
+  SingleActivator(LogicalKeyboardKey.keyG, control: true): GroupIntent(
+    group: true,
+  ),
+  SingleActivator(LogicalKeyboardKey.keyG, meta: true): GroupIntent(
+    group: true,
+  ),
+  SingleActivator(LogicalKeyboardKey.keyG, control: true, shift: true):
+      GroupIntent(group: false),
+  SingleActivator(LogicalKeyboardKey.keyG, meta: true, shift: true):
+      GroupIntent(group: false),
+
+  SingleActivator(LogicalKeyboardKey.bracketLeft): BrushWidthIntent(-1),
+  SingleActivator(LogicalKeyboardKey.bracketRight): BrushWidthIntent(1),
+
+  SingleActivator(LogicalKeyboardKey.f1): ShowShortcutsIntent(),
+  SingleActivator(LogicalKeyboardKey.slash, control: true, shift: true):
+      ShowShortcutsIntent(),
+
+  SingleActivator(LogicalKeyboardKey.digit0, control: true): ResetViewIntent(),
+  SingleActivator(LogicalKeyboardKey.digit0, meta: true): ResetViewIntent(),
+  // Both the shifted and unshifted key: nobody presses Ctrl+Shift to zoom in.
+  SingleActivator(LogicalKeyboardKey.equal, control: true): ZoomIntent(
+    kZoomStep,
+  ),
+  SingleActivator(LogicalKeyboardKey.add, control: true): ZoomIntent(kZoomStep),
+  SingleActivator(LogicalKeyboardKey.equal, meta: true): ZoomIntent(kZoomStep),
+  SingleActivator(LogicalKeyboardKey.minus, control: true): ZoomIntent(
+    1 / kZoomStep,
+  ),
+  SingleActivator(LogicalKeyboardKey.minus, meta: true): ZoomIntent(
+    1 / kZoomStep,
   ),
 
   SingleActivator(LogicalKeyboardKey.keyN, control: true): NewDocumentIntent(),
@@ -263,10 +351,10 @@ class AppMenuBar extends ConsumerWidget {
                       saveActiveSession(context, ref, saveAs: true),
                   child: const Text('Save As…'),
                 ),
-                // Null onPressed renders the item disabled. Task 15.1.
-                const MenuItemButton(
-                  onPressed: null,
-                  child: Text('Export PNG…'),
+                MenuItemButton(
+                  key: const Key('menu-export'),
+                  onPressed: () => exportActiveSessionPng(context, ref),
+                  child: const Text('Export PNG…'),
                 ),
               ],
               child: const Text('File'),
@@ -304,8 +392,24 @@ class AppMenuBar extends ConsumerWidget {
                         : 'Redo',
                   ),
                 ),
+                MenuItemButton(
+                  key: const Key('menu-preferences'),
+                  onPressed: () => showPreferencesDialog(context),
+                  child: const Text('Preferences…'),
+                ),
               ],
               child: const Text('Edit'),
+            ),
+            SubmenuButton(
+              menuChildren: [
+                MenuItemButton(
+                  key: const Key('menu-shortcuts'),
+                  shortcut: const SingleActivator(LogicalKeyboardKey.f1),
+                  onPressed: () => showShortcutsDialog(context),
+                  child: const Text('Keyboard Shortcuts'),
+                ),
+              ],
+              child: const Text('Help'),
             ),
           ],
         ),

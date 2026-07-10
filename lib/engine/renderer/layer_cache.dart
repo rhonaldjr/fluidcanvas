@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:inkpad/domain/models/models.dart';
+import 'package:inkpad/engine/rough.dart';
 import 'package:inkpad/engine/shape_paths.dart';
 import 'package:inkpad/engine/text_layout.dart';
 import 'package:inkpad/engine/renderer/variable_width.dart';
@@ -45,7 +46,17 @@ void paintShape(Canvas canvas, Shape shape) {
   if (box.w == 0 && box.h == 0) return;
 
   final rect = Rect.fromLTWH(box.x, box.y, box.w, box.h);
+  // The precise outline: what gets filled, and what gets stroked unless the
+  // shape asked for the hand-drawn look.
   final path = buildShapePath(box.type, rect, strokeWidth: box.strokeWidth);
+  final outline = box.isRough
+      ? buildRoughPath(
+          box.type,
+          rect,
+          seed: box.seed,
+          strokeWidth: box.strokeWidth,
+        )
+      : path;
 
   canvas.save();
   if (box.isRotated) {
@@ -56,6 +67,8 @@ void paintShape(Canvas canvas, Shape shape) {
   }
 
   // A line and an arrow enclose no area, so a fill colour on one is ignored.
+  // The fill always follows the precise outline: a rough one is a handful of
+  // open subpaths, one per edge, and filling that paints nonsense.
   if (box.isFilled && shapeTypeIsClosed(box.type)) {
     canvas.drawPath(
       path,
@@ -68,7 +81,7 @@ void paintShape(Canvas canvas, Shape shape) {
 
   final pattern = dashPatternFor(box.strokeStyle);
   canvas.drawPath(
-    pattern == null ? path : dashPath(path, pattern, box.strokeWidth),
+    pattern == null ? outline : dashPath(outline, pattern, box.strokeWidth),
     Paint()
       ..color = colorFromRGBA(box.strokeColorRGBA)
       ..style = PaintingStyle.stroke
@@ -112,7 +125,14 @@ void paintText(Canvas canvas, TextElement element) {
 }
 
 /// Draws one element.
-void _paintElement(Canvas canvas, CanvasElement element) {
+///
+/// [siblings] is the list [element] lives in. Only a [Connector] needs it: its
+/// bound ends are derived from the elements they point at, never stored.
+void paintElement(
+  Canvas canvas,
+  CanvasElement element, {
+  List<CanvasElement> siblings = const [],
+}) {
   switch (element) {
     case Stroke():
       paintStroke(canvas, element);
@@ -120,6 +140,57 @@ void _paintElement(Canvas canvas, CanvasElement element) {
       paintShape(canvas, element);
     case TextElement():
       paintText(canvas, element);
+    case Connector():
+      paintConnector(canvas, element, siblings);
+    case Group():
+      // A group has nothing of its own to draw. Its children resolve their
+      // bindings against each other, not against the layer around them.
+      for (final child in element.children) {
+        paintElement(canvas, child, siblings: element.children);
+      }
+  }
+}
+
+/// Draws a connector as the line between its resolved endpoints.
+void paintConnector(
+  Canvas canvas,
+  Connector connector,
+  List<CanvasElement> siblings,
+) {
+  final line = resolveConnector(connector, siblings);
+  final start = Offset(line.x1, line.y1);
+  final end = Offset(line.x2, line.y2);
+  if ((end - start).distance < 1e-6) return;
+
+  final path = Path()
+    ..moveTo(start.dx, start.dy)
+    ..lineTo(end.dx, end.dy);
+
+  final paint = Paint()
+    ..color = colorFromRGBA(connector.strokeColorRGBA)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = connector.strokeWidth
+    ..strokeCap = connector.strokeStyle == StrokeStyle.dotted
+        ? StrokeCap.round
+        : StrokeCap.butt
+    ..isAntiAlias = true;
+
+  final pattern = dashPatternFor(connector.strokeStyle);
+  canvas.drawPath(
+    pattern == null ? path : dashPath(path, pattern, connector.strokeWidth),
+    paint,
+  );
+
+  // The heads reuse the arrow shape's geometry, built from the two points so
+  // they point the way the line actually runs.
+  if (connector.endArrow) {
+    canvas.drawPath(
+      arrowHeadAt(start, end, connector.strokeWidth),
+      paint..strokeCap = StrokeCap.butt,
+    );
+  }
+  if (connector.startArrow) {
+    canvas.drawPath(arrowHeadAt(end, start, connector.strokeWidth), paint);
   }
 }
 
@@ -133,18 +204,23 @@ void _paintElement(Canvas canvas, CanvasElement element) {
 ///
 /// Pass [over] to build on an already-rendered image and paint only [elements]
 /// on top of it — see [LayerCache.imageFor].
+///
+/// [siblings] defaults to [elements], and must be given whenever [elements] is
+/// only a *slice* of its layer: a connector in the appended tail may bind to a
+/// shape further down, and it resolves its ends against the whole list.
 ui.Image renderElementsToImage(
   List<CanvasElement> elements,
   int width,
   int height, {
   ui.Image? over,
+  List<CanvasElement>? siblings,
 }) {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
 
   if (over != null) canvas.drawImage(over, Offset.zero, Paint());
   for (final element in elements) {
-    _paintElement(canvas, element);
+    paintElement(canvas, element, siblings: siblings ?? elements);
   }
 
   final picture = recorder.endRecording();
@@ -214,7 +290,13 @@ class LayerCache {
         : null;
 
     final image = appended != null
-        ? renderElementsToImage(appended, width, height, over: entry!.image)
+        ? renderElementsToImage(
+            appended,
+            width,
+            height,
+            over: entry!.image,
+            siblings: layer.elements,
+          )
         : renderElementsToImage(layer.elements, width, height);
 
     entry?.image.dispose();

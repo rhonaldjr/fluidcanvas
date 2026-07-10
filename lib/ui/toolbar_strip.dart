@@ -70,6 +70,7 @@ class ToolSelector extends ConsumerWidget {
           (Tool.arrow, Icons.arrow_forward, 'Arrow'),
           (Tool.diamond, Icons.change_history, 'Diamond'),
           (Tool.text, Icons.title, 'Text'),
+          (Tool.connector, Icons.timeline, 'Connector'),
         ])
           IconButton(
             key: Key('tool-${value.name}'),
@@ -221,6 +222,22 @@ class ShapeStyleControls extends ConsumerWidget {
               sessions.styleSelection(strokeStyle: value);
             },
           ),
+        IconButton(
+          key: const Key('shape-rough'),
+          tooltip: style.renderStyle == ShapeRenderStyle.rough
+              ? 'Draw shapes precisely'
+              : 'Draw shapes by hand',
+          isSelected: style.renderStyle == ShapeRenderStyle.rough,
+          iconSize: 18,
+          icon: const Icon(Icons.gesture),
+          onPressed: () {
+            final next = style.renderStyle == ShapeRenderStyle.rough
+                ? ShapeRenderStyle.precise
+                : ShapeRenderStyle.rough;
+            ref.read(shapeStyleProvider.notifier).setRenderStyle(next);
+            sessions.styleSelection(renderStyle: next);
+          },
+        ),
         SizedBox(
           height: 100,
           child: RotatedBox(

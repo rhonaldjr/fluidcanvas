@@ -1,7 +1,12 @@
 import 'package:inkpad/format/skd_exception.dart';
 
-/// The only format version this build writes.
-const int kSkdFormatVersion = 1;
+/// The format version this build writes.
+///
+/// v2 adds `elementType` 3 (connector) and 4 (group), and spends one of the
+/// shape body's two reserved bytes on its render style. A v2 reader opens every
+/// v1 file; a v1 reader refuses a v2 file with "written by a newer version"
+/// rather than choking on an element type it has never heard of.
+const int kSkdFormatVersion = 2;
 
 /// The `mimetype` entry's contents — the first, uncompressed entry in the ZIP.
 const String kSkdMimeType = 'application/x-skd';

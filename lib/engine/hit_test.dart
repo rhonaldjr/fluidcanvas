@@ -13,18 +13,49 @@ const double kHitTolerance = 4;
 /// Everything happens in document space. A rotated shape is tested by rotating
 /// the *point* backwards about the shape's centre, which is cheaper and exact
 /// compared with rotating the geometry.
+/// [siblings] is the list [element] lives in — a layer's elements, or a group's
+/// children. Only a [Connector] needs it: its bound ends have no coordinates of
+/// their own until they are resolved against what they point at.
 bool hitTestElement(
   CanvasElement element,
   double x,
   double y, {
   double tolerance = kHitTolerance,
+  List<CanvasElement> siblings = const [],
 }) => switch (element) {
   Stroke() => _hitStroke(element, x, y, tolerance),
+  // A rough shape is hit-tested on its parametric outline, not its wobble: you
+  // select the rectangle you meant to draw, not the jitter you happened to get.
   Shape() => _hitShape(element, x, y, tolerance),
   // A text box is grabbable anywhere inside it: clicking the gaps between
   // glyphs must still select, and pick a caret position once editing.
   TextElement() => _hitText(element, x, y, tolerance),
+  Connector() => _hitConnector(element, x, y, tolerance, siblings),
+  // A group is whatever it holds. Hitting any descendant hits the group, so a
+  // click selects the group and never one child out of it.
+  Group() => element.children.any(
+    (child) => hitTestElement(
+      child,
+      x,
+      y,
+      tolerance: tolerance,
+      siblings: element.children,
+    ),
+  ),
 };
+
+/// A connector is its resolved line, thickened by its own stroke width.
+bool _hitConnector(
+  Connector connector,
+  double x,
+  double y,
+  double tolerance,
+  List<CanvasElement> siblings,
+) {
+  final line = resolveConnector(connector, siblings);
+  final reach = tolerance + connector.strokeWidth / 2;
+  return _distanceToSegment(x, y, line.x1, line.y1, line.x2, line.y2) <= reach;
+}
 
 /// Every element of [layers] under the point, topmost first.
 ///
@@ -39,7 +70,13 @@ List<CanvasElement> elementsAt(
   for (final layer in layers.reversed) {
     if (!layer.visible || layer.opacity == 0) continue;
     for (final element in layer.elements.reversed) {
-      if (hitTestElement(element, x, y, tolerance: tolerance)) {
+      if (hitTestElement(
+        element,
+        x,
+        y,
+        tolerance: tolerance,
+        siblings: layer.elements,
+      )) {
         hits.add(element);
       }
     }

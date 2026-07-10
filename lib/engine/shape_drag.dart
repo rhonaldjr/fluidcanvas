@@ -41,6 +41,8 @@ Shape shapeFromDrag({
   required int fillColorRGBA,
   required double strokeWidth,
   required StrokeStyle strokeStyle,
+  ShapeRenderStyle renderStyle = ShapeRenderStyle.precise,
+  int seed = 0,
   bool square = false,
   bool fromCenter = false,
 }) {
@@ -61,5 +63,7 @@ Shape shapeFromDrag({
     fillColorRGBA: fillColorRGBA,
     strokeWidth: strokeWidth,
     strokeStyle: strokeStyle,
+    renderStyle: renderStyle,
+    seed: seed,
   );
 }

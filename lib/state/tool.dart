@@ -14,7 +14,8 @@ enum Tool {
   line(shapeType: ShapeType.line),
   arrow(shapeType: ShapeType.arrow),
   diamond(shapeType: ShapeType.diamond),
-  text();
+  text(),
+  connector();
 
   const Tool({this.strokeToolId, this.shapeType});
 
@@ -28,6 +29,7 @@ enum Tool {
   bool get drawsStroke => strokeToolId != null;
   bool get drawsShape => shapeType != null;
   bool get drawsText => this == Tool.text;
+  bool get drawsConnector => this == Tool.connector;
 }
 
 class ToolNotifier extends Notifier<Tool> {

@@ -18,6 +18,7 @@ class LayerStackPainter extends CustomPainter {
     required this.cache,
     this.liveStroke,
     this.liveShape,
+    this.liveConnector,
     this.debugLabel,
   });
 
@@ -38,6 +39,10 @@ class LayerStackPainter extends CustomPainter {
 
   /// The shape being dragged out, painted into the same layer.
   final Shape? liveShape;
+
+  /// The connector being dragged out. It resolves its bound ends against the
+  /// active layer's committed elements, exactly as it will once committed.
+  final Connector? liveConnector;
 
   /// Counted by [paintCounts] in debug builds, so tests can assert which
   /// boundaries actually repaint.
@@ -66,21 +71,33 @@ class LayerStackPainter extends CustomPainter {
       final isActive = identical(layer, layers.last);
       final stroke = isActive ? liveStroke : null;
       final shape = isActive ? liveShape : null;
+      final connector = isActive ? liveConnector : null;
       if (!layer.visible || layer.opacity == 0) continue;
-      if (layer.elements.isEmpty && stroke == null && shape == null) continue;
-      _paintLayer(canvas, layer, stroke, shape);
+      if (layer.elements.isEmpty &&
+          stroke == null &&
+          shape == null &&
+          connector == null) {
+        continue;
+      }
+      _paintLayer(canvas, layer, stroke, shape, connector);
     }
 
     canvas.restore();
   }
 
-  void _paintLayer(Canvas canvas, Layer layer, Stroke? live, Shape? shape) {
+  void _paintLayer(
+    Canvas canvas,
+    Layer layer,
+    Stroke? live,
+    Shape? shape,
+    Connector? connector,
+  ) {
     // Opacity is applied here, not baked into the cached image.
     final composite = Paint()
       ..color = Color.fromARGB((layer.opacity * 255).round(), 0, 0, 0)
       ..filterQuality = FilterQuality.medium;
 
-    if (live == null && shape == null) {
+    if (live == null && shape == null && connector == null) {
       if (layer.elements.isEmpty) return;
       canvas.drawImage(
         cache.imageFor(layer, width: documentWidth, height: documentHeight),
@@ -102,6 +119,7 @@ class LayerStackPainter extends CustomPainter {
     }
     if (live != null) paintStroke(canvas, live);
     if (shape != null) paintShape(canvas, shape);
+    if (connector != null) paintConnector(canvas, connector, layer.elements);
     canvas.restore();
   }
 
@@ -110,6 +128,7 @@ class LayerStackPainter extends CustomPainter {
       // Layers and strokes are immutable, so a change means a new instance.
       !identical(old.liveStroke, liveStroke) ||
       !identical(old.liveShape, liveShape) ||
+      !identical(old.liveConnector, liveConnector) ||
       old.scale != scale ||
       old.documentWidth != documentWidth ||
       old.documentHeight != documentHeight ||

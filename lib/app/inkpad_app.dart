@@ -9,17 +9,23 @@ import 'package:inkpad/ui/ui.dart';
 ///
 /// [startupFiles] are `.skd` paths from the command line, opened once the
 /// first frame has a `BuildContext` to show an error dialog against.
-class InkPadApp extends StatelessWidget {
+class InkPadApp extends ConsumerWidget {
   const InkPadApp({super.key, this.startupFiles = const []});
 
   final List<String> startupFiles;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
       title: 'InkPad',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: Colors.blueGrey),
+      darkTheme: ThemeData(
+        colorSchemeSeed: Colors.blueGrey,
+        brightness: Brightness.dark,
+      ),
+      // The stored preference, or the system's until it has loaded.
+      themeMode: ref.watch(themeModeProvider),
       home: _Desktop(startupFiles: startupFiles),
     );
   }
@@ -49,8 +55,16 @@ class _DesktopState extends ConsumerState<_Desktop> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Riverpod's listen only fires on change, so name the first window.
       _title.set(windowTitleFor(ref.read(activeSessionProvider)));
+      _setWindowIcon();
       _openStartupFiles();
     });
+  }
+
+  /// Hands the shipped PNG to the host. A window with no icon is cosmetic, so
+  /// a failure here is logged by the host and otherwise ignored.
+  Future<void> _setWindowIcon() async {
+    final data = await rootBundle.load(kWindowIconAsset);
+    await _title.setIcon(data.buffer.asUint8List());
   }
 
   Future<void> _openStartupFiles() async {

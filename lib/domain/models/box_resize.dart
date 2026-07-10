@@ -13,6 +13,10 @@ bool canResizeBox(CanvasElement element) => switch (element) {
   Stroke() => false,
   Shape(rotation: final rotation) => rotation == 0,
   TextElement(rotation: final rotation) => rotation == 0,
+  // A connector has endpoints, not a box; a group has children whose own boxes
+  // are what would have to change, and one axis of a group is not one axis of
+  // each child. Both fall back to the uniform scale.
+  Connector() || Group() => false,
 };
 
 /// [element] moved and sized to fill [box], with its *style* untouched.
@@ -26,6 +30,8 @@ bool canResizeBox(CanvasElement element) => switch (element) {
 CanvasElement elementWithBox(CanvasElement element, Bounds box) =>
     switch (element) {
       Stroke() => throw ArgumentError('a stroke has no box to resize'),
+      Connector() => throw ArgumentError('a connector has no box to resize'),
+      Group() => throw ArgumentError('a group resizes through its children'),
       Shape() => element.copyWith(
         x: box.left,
         y: box.top,

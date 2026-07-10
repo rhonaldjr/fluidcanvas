@@ -17,7 +17,8 @@ struct _MyApplication {
   FlMethodChannel* window_channel;
 };
 
-// The channel Dart uses to set the window title. See lib/app/window_title.dart.
+// The channel Dart uses to set the window title and icon.
+// See lib/app/window_title.dart.
 static const char kWindowChannel[] = "inkpad/window";
 
 static void set_window_title(MyApplication* self, const gchar* title) {
@@ -27,6 +28,30 @@ static void set_window_title(MyApplication* self, const gchar* title) {
   if (self->window != nullptr) {
     gtk_window_set_title(self->window, title);
   }
+}
+
+// Sets the window icon from raw PNG bytes.
+//
+// Not gtk_window_set_icon_name: that asks the icon *theme* to resolve a name,
+// and inside an AppImage the theme has never heard of us — GTK warns "Could
+// not load a pixbuf from icon theme" and the window keeps the stock icon.
+// Decoding the pixels we shipped skips the lookup entirely.
+static gboolean set_window_icon(MyApplication* self, const uint8_t* data,
+                                size_t length) {
+  if (self->window == nullptr) return FALSE;
+
+  g_autoptr(GdkPixbufLoader) loader = gdk_pixbuf_loader_new();
+  g_autoptr(GError) error = nullptr;
+  if (!gdk_pixbuf_loader_write(loader, data, length, &error) ||
+      !gdk_pixbuf_loader_close(loader, &error)) {
+    g_warning("Failed to decode the window icon: %s", error->message);
+    return FALSE;
+  }
+
+  GdkPixbuf* pixbuf = gdk_pixbuf_loader_get_pixbuf(loader);
+  if (pixbuf == nullptr) return FALSE;
+  gtk_window_set_icon(self->window, pixbuf);
+  return TRUE;
 }
 
 static void window_method_call_cb(FlMethodChannel* channel,
@@ -43,6 +68,17 @@ static void window_method_call_cb(FlMethodChannel* channel,
     } else {
       response = FL_METHOD_RESPONSE(fl_method_error_response_new(
           "bad-args", "setTitle expects a string", nullptr));
+    }
+  } else if (g_strcmp0(fl_method_call_get_name(method_call), "setIcon") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    if (fl_value_get_type(args) == FL_VALUE_TYPE_UINT8_LIST) {
+      gboolean ok = set_window_icon(self, fl_value_get_uint8_list(args),
+                                    fl_value_get_length(args));
+      response = FL_METHOD_RESPONSE(
+          fl_method_success_response_new(fl_value_new_bool(ok)));
+    } else {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "bad-args", "setIcon expects PNG bytes", nullptr));
     }
   } else {
     response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());

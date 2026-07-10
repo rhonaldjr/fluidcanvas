@@ -59,6 +59,33 @@ void main() {
       expect(calls.single.arguments, 'sketch.skd — InkPad');
     });
 
+    test('setIcon hands the host raw PNG bytes', () async {
+      final bytes = Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 1, 2, 3]);
+      await const WindowTitle().setIcon(bytes);
+
+      expect(calls.single.method, 'setIcon');
+      expect(calls.single.arguments, bytes);
+    });
+
+    test('setIcon reports whether the host took it', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(kWindowChannel, (call) async => true);
+      expect(await const WindowTitle().setIcon(Uint8List(4)), isTrue);
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(kWindowChannel, (call) async => null);
+      expect(await const WindowTitle().setIcon(Uint8List(4)), isFalse);
+    });
+
+    test(
+      'a platform with no handler takes no icon, and does not throw',
+      () async {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(kWindowChannel, null);
+        expect(await const WindowTitle().setIcon(Uint8List(4)), isFalse);
+      },
+    );
+
     test('a platform with no handler is not an error', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(kWindowChannel, null);

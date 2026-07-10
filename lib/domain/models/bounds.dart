@@ -48,6 +48,14 @@ class Bounds {
   bool get isDegenerate => width == 0 || height == 0;
 
   /// The smallest rectangle containing both `this` and [other].
+  /// This box moved by ([dx], [dy]).
+  Bounds translated(double dx, double dy) => Bounds(
+    left: left + dx,
+    top: top + dy,
+    right: right + dx,
+    bottom: bottom + dy,
+  );
+
   Bounds union(Bounds other) => Bounds(
     left: left < other.left ? left : other.left,
     top: top < other.top ? top : other.top,

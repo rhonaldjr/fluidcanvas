@@ -25,3 +25,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    # Handed to GTK as the window icon at startup: an AppImage cannot resolve
+    # an icon-theme name, so the pixels travel with the app. See 15.5.
+    - packaging/linux/icons/hicolor/256x256/apps/inkpad.png

@@ -41,6 +41,39 @@ enum StrokeStyle {
   );
 }
 
+/// How a shape's outline is rendered. [value] is written into the first byte
+/// the v1 spec reserved in the shape body, so a v1 reader ignores it and draws
+/// the shape precisely — the drawing is still all there, just not wobbly.
+enum ShapeRenderStyle {
+  precise(0),
+  rough(1);
+
+  const ShapeRenderStyle(this.value);
+
+  final int value;
+
+  static ShapeRenderStyle fromValue(int value) => values.firstWhere(
+    (style) => style.value == value,
+    // A future style read by this build: draw it precisely rather than refuse
+    // the file. Unlike an unknown elementType, this costs nothing to skip.
+    orElse: () => ShapeRenderStyle.precise,
+  );
+}
+
+/// A stable 32-bit hash of [id], used to seed a shape that becomes rough after
+/// it was created.
+///
+/// Not `String.hashCode`: that is only stable within one run, and a redo must
+/// reproduce exactly what the apply produced. FNV-1a is stable everywhere.
+int seedFromId(String id) {
+  var hash = 0x811C9DC5;
+  for (final unit in id.codeUnits) {
+    hash = (hash ^ unit) * 0x01000193;
+    hash &= 0xFFFFFFFF;
+  }
+  return hash;
+}
+
 /// A parametric shape. Resizing changes [w] and [h]; it never resamples pixels.
 ///
 /// [w] and [h] may be negative while a drag-to-create or a resize is in flight
@@ -60,7 +93,10 @@ class Shape extends CanvasElement {
     this.rotation = 0,
     this.fillColorRGBA = 0,
     this.strokeStyle = StrokeStyle.solid,
-  }) : assert(strokeWidth > 0, 'strokeWidth must be positive');
+    this.renderStyle = ShapeRenderStyle.precise,
+    this.seed = 0,
+  }) : assert(strokeWidth > 0, 'strokeWidth must be positive'),
+       assert(seed >= 0 && seed <= 0xFFFFFFFF, 'seed is a u32');
 
   final ShapeType type;
 
@@ -83,6 +119,18 @@ class Shape extends CanvasElement {
 
   final double strokeWidth;
   final StrokeStyle strokeStyle;
+
+  /// Precise, or hand-drawn with seeded jitter.
+  final ShapeRenderStyle renderStyle;
+
+  /// Seeds the jitter of [ShapeRenderStyle.rough]. Meaningless when precise.
+  ///
+  /// Stored so a shape wobbles the same way on every machine and every
+  /// repaint. Fixed at creation, and carried through every transform: resizing
+  /// a rough rectangle must not reshuffle its strokes.
+  final int seed;
+
+  bool get isRough => renderStyle == ShapeRenderStyle.rough;
 
   /// Whether the shape paints an interior. Hit-testing uses this to decide
   /// between testing the filled region and testing the outline.
@@ -205,6 +253,8 @@ class Shape extends CanvasElement {
     int? fillColorRGBA,
     double? strokeWidth,
     StrokeStyle? strokeStyle,
+    ShapeRenderStyle? renderStyle,
+    int? seed,
   }) => Shape(
     id: id ?? this.id,
     type: type ?? this.type,
@@ -217,6 +267,8 @@ class Shape extends CanvasElement {
     fillColorRGBA: fillColorRGBA ?? this.fillColorRGBA,
     strokeWidth: strokeWidth ?? this.strokeWidth,
     strokeStyle: strokeStyle ?? this.strokeStyle,
+    renderStyle: renderStyle ?? this.renderStyle,
+    seed: seed ?? this.seed,
   );
 
   @override
@@ -233,7 +285,9 @@ class Shape extends CanvasElement {
           strokeColorRGBA == other.strokeColorRGBA &&
           fillColorRGBA == other.fillColorRGBA &&
           strokeWidth == other.strokeWidth &&
-          strokeStyle == other.strokeStyle;
+          strokeStyle == other.strokeStyle &&
+          renderStyle == other.renderStyle &&
+          seed == other.seed;
 
   @override
   int get hashCode => Object.hash(
@@ -248,6 +302,8 @@ class Shape extends CanvasElement {
     fillColorRGBA,
     strokeWidth,
     strokeStyle,
+    renderStyle,
+    seed,
   );
 
   @override

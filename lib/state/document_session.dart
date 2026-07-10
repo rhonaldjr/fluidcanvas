@@ -1,12 +1,14 @@
 import 'package:inkpad/domain/commands/commands.dart';
 import 'package:inkpad/domain/models/models.dart';
+import 'package:inkpad/engine/view_transform.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 /// Everything belonging to one open document — one tab.
 ///
 /// There is no global "current document": resolve it from the active session.
-/// Later phases widen this bag with the viewport transform (14.1).
+/// Everything scoped to one open document lives here — including its own
+/// [view], so switching tabs restores that document's zoom and scroll.
 ///
 /// What deliberately does *not* live here: the active tool, brush settings, and
 /// recent colors. Those are global, so switching tabs never changes the brush
@@ -19,6 +21,7 @@ class DocumentSession {
     this.fitToWindow = true,
     this.filePath,
     this.untitledIndex = 1,
+    this.view = ViewTransform.initial,
     Set<String> selection = const {},
     CommandStack? commands,
   }) : selection = Set.unmodifiable(selection),
@@ -95,6 +98,12 @@ class DocumentSession {
   /// Whether this session has never been written to disk.
   bool get isUntitled => filePath == null;
 
+  /// How this document is drawn in the viewport: zoom and scroll.
+  ///
+  /// A view preference, not a document change: it is never a command, and
+  /// changing it never marks the session dirty.
+  final ViewTransform view;
+
   Layer get activeLayer => document.layerById(activeLayerId)!;
 
   /// Whether anything has changed since this document was last saved.
@@ -138,6 +147,7 @@ class DocumentSession {
     bool? fitToWindow,
     Set<String>? selection,
     String? filePath,
+    ViewTransform? view,
     bool clearFilePath = false,
   }) {
     final doc = document ?? this.document;
@@ -152,6 +162,7 @@ class DocumentSession {
       fitToWindow: fitToWindow ?? this.fitToWindow,
       filePath: clearFilePath ? null : (filePath ?? this.filePath),
       untitledIndex: untitledIndex,
+      view: view ?? this.view,
       // A command may have deleted a selected element.
       selection: {
         for (final id in ids)
@@ -203,6 +214,9 @@ class DocumentSession {
   /// A copy with the fit-to-window preference flipped.
   DocumentSession withFitToWindow(bool value) => _copy(fitToWindow: value);
 
+  /// A copy drawn with [view]. Not undoable, and not a change to the document.
+  DocumentSession withView(ViewTransform view) => _copy(view: view);
+
   /// A copy with [layerId] active.
   ///
   /// Throws [ArgumentError] when no such layer exists.
@@ -230,6 +244,7 @@ class DocumentSession {
           fitToWindow == other.fitToWindow &&
           filePath == other.filePath &&
           untitledIndex == other.untitledIndex &&
+          view == other.view &&
           _sameSelection(selection, other.selection) &&
           commands == other.commands;
 
@@ -241,6 +256,7 @@ class DocumentSession {
     fitToWindow,
     filePath,
     untitledIndex,
+    view,
     Object.hashAllUnordered(selection),
     commands,
   );

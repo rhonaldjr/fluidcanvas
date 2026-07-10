@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/domain/commands/commands.dart';
 import 'package:inkpad/domain/models/models.dart';
+import 'package:inkpad/engine/view_transform.dart';
 import 'package:inkpad/state/document_session.dart';
 import 'package:uuid/uuid.dart';
 
@@ -234,6 +235,18 @@ class SessionsNotifier extends Notifier<SessionsState> {
     state = state.copyWith(sessions: next);
   }
 
+  /// Replaces the active session's view transform. Never a command: zooming
+  /// to 800% and back must leave the document — and the undo stack — alone.
+  void setView(ViewTransform view) =>
+      _updateActive(state.activeSession.withView(view));
+
+  /// Drags the page by [dx], [dy] screen pixels.
+  void panBy(double dx, double dy) =>
+      setView(state.activeSession.view.pannedBy(dx, dy));
+
+  /// Puts the whole page back in the viewport, centred. Ctrl+0.
+  void resetView() => setView(ViewTransform.initial);
+
   /// Turns the active session's fit-to-window preference on or off.
   ///
   /// A view preference, not a document change, so it is not undoable.
@@ -406,6 +419,7 @@ class SessionsNotifier extends Notifier<SessionsState> {
     int? fillColorRGBA,
     double? strokeWidth,
     StrokeStyle? strokeStyle,
+    ShapeRenderStyle? renderStyle,
   }) {
     final before = state.activeSession.selectedElements
         .whereType<Shape>()
@@ -418,6 +432,7 @@ class SessionsNotifier extends Notifier<SessionsState> {
         fillColorRGBA: fillColorRGBA,
         strokeWidth: strokeWidth,
         strokeStyle: strokeStyle,
+        renderStyle: renderStyle,
       ),
     );
   }
@@ -428,16 +443,96 @@ class SessionsNotifier extends Notifier<SessionsState> {
     if (session.selection.isEmpty) return;
 
     final removed = <({String layerId, int index, CanvasElement element})>[];
+    final frozenBefore = <CanvasElement>[];
+    final frozenAfter = <CanvasElement>[];
+
     for (final layer in session.document.layers) {
       for (var i = 0; i < layer.elements.length; i++) {
         final element = layer.elements[i];
         if (session.selection.contains(element.id)) {
           removed.add((layerId: layer.id, index: i, element: element));
+          continue;
+        }
+        // A surviving connector bound to something being deleted stops
+        // following it, and stays where it currently is.
+        if (element is Connector &&
+            element.boundIds.any(session.selection.contains)) {
+          final survivors = element.boundIds.difference(session.selection);
+          frozenBefore.add(element);
+          frozenAfter.add(
+            freezeBindingsOutside(element, survivors, layer.elements),
+          );
         }
       }
     }
-    run(DeleteElementsCommand(removed: removed));
+
+    run(
+      DeleteElementsCommand(
+        removed: removed,
+        frozenBefore: frozenBefore,
+        frozenAfter: frozenAfter,
+      ),
+    );
     clearSelection();
+  }
+
+  /// Wraps the selection into a group, and selects it. Ctrl+G.
+  ///
+  /// Everything must live on one layer: a group spanning layers would have no
+  /// z-position, and no answer to which layer's opacity applies to it.
+  void groupSelection() {
+    final session = state.activeSession;
+    final ids = session.selection;
+    if (ids.length < 2) return;
+
+    final layers = [
+      for (final layer in session.document.layers)
+        if (layer.elements.any((e) => ids.contains(e.id))) layer,
+    ];
+    if (layers.length != 1) return;
+
+    final layer = layers.single;
+    final present = {
+      for (final element in layer.elements)
+        if (ids.contains(element.id)) element.id,
+    };
+    if (present.length < 2) return;
+
+    final groupId = const Uuid().v4();
+    run(
+      GroupElementsCommand(
+        layerId: layer.id,
+        groupId: groupId,
+        memberIds: present,
+      ),
+    );
+    setSelection({groupId});
+  }
+
+  /// Splices the selected groups' children back into their layer. Ctrl+Shift+G.
+  ///
+  /// Anything selected that is not a group is left alone and stays selected.
+  void ungroupSelection() {
+    final session = state.activeSession;
+    final freed = <String>{};
+
+    for (final layer in session.document.layers) {
+      for (final element in layer.elements) {
+        if (element is! Group || !session.selection.contains(element.id)) {
+          continue;
+        }
+        run(UngroupElementsCommand(layerId: layer.id, groupId: element.id));
+        freed.addAll(element.children.map((child) => child.id));
+      }
+    }
+    if (freed.isEmpty) return;
+
+    setSelection({
+      ...session.selection.where(
+        (id) => state.activeSession.document.findElement(id) != null,
+      ),
+      ...freed,
+    });
   }
 
   /// Copies the selection, offset by ([dx], [dy]), and selects the copies.
@@ -450,10 +545,11 @@ class SessionsNotifier extends Notifier<SessionsState> {
     if (originals.isEmpty) return;
 
     const uuid = Uuid();
-    final copies = [
-      for (final element in originals)
-        _withId(element.translated(dx, dy), uuid.v4()),
-    ];
+    // Fresh ids for the whole selection at once: a copied connector must bind
+    // to the copied shape beside it, not to the original it was drawn against.
+    final copies = withFreshIdsAll([
+      for (final element in originals) element.translated(dx, dy),
+    ], uuid.v4);
 
     run(
       DuplicateElementsCommand(layerId: session.activeLayerId, copies: copies),
@@ -656,10 +752,3 @@ final activeSessionProvider = Provider<DocumentSession>(
 final activeDocumentProvider = Provider<SkdDocument>(
   (ref) => ref.watch(activeSessionProvider).document,
 );
-
-/// A copy of [element] carrying [id].
-CanvasElement _withId(CanvasElement element, String id) => switch (element) {
-  Stroke() => element.copyWith(id: id),
-  Shape() => element.copyWith(id: id),
-  TextElement() => element.copyWith(id: id),
-};

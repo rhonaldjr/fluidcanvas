@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -221,6 +223,14 @@ class _FlakyFileService implements FileService {
 
   @override
   Future<List<String>> pickOpenPaths() => inner.pickOpenPaths();
+
+  @override
+  Future<String?> pickExportPath({required String suggestedName}) =>
+      inner.pickExportPath(suggestedName: suggestedName);
+
+  @override
+  Future<void> writeBytes(String path, Uint8List bytes) =>
+      inner.writeBytes(path, bytes);
 
   @override
   Future<String?> pickSavePath({required String suggestedName}) =>

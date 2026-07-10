@@ -6,6 +6,7 @@ import 'package:inkpad/ui/canvas_view.dart';
 import 'package:inkpad/ui/file_actions.dart';
 import 'package:inkpad/ui/layer_panel.dart';
 import 'package:inkpad/ui/status_bar.dart';
+import 'package:inkpad/ui/shortcuts_dialog.dart';
 import 'package:inkpad/ui/tab_strip.dart';
 import 'package:inkpad/ui/toolbar_strip.dart';
 
@@ -17,12 +18,15 @@ class AppShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sessions = ref.read(sessionsProvider.notifier);
+    // A text box under the cursor owns the keyboard. Without this, typing
+    // "bold" would swap tools four times and never reach the box.
+    final typing = ref.watch(textEditingProvider) != null;
 
     // Shortcuts live above the shell so they fire wherever focus sits, and
     // `autofocus` gives the canvas focus at startup so the first Ctrl+Z works
     // without clicking anything first.
     return Shortcuts(
-      shortcuts: kUndoRedoShortcuts,
+      shortcuts: typing ? const <ShortcutActivator, Intent>{} : kAppShortcuts,
       child: Actions(
         actions: {
           UndoIntent: CallbackAction<UndoIntent>(
@@ -51,6 +55,30 @@ class AppShell extends ConsumerWidget {
               forward: intent.forward,
               toEnd: intent.toEnd,
             ),
+          ),
+
+          GroupIntent: CallbackAction<GroupIntent>(
+            onInvoke: (intent) => intent.group
+                ? sessions.groupSelection()
+                : sessions.ungroupSelection(),
+          ),
+          SelectToolIntent: CallbackAction<SelectToolIntent>(
+            onInvoke: (intent) =>
+                ref.read(toolProvider.notifier).select(intent.tool),
+          ),
+          BrushWidthIntent: CallbackAction<BrushWidthIntent>(
+            onInvoke: (intent) => ref
+                .read(brushProvider.notifier)
+                .setWidth(ref.read(brushProvider).baseWidth + intent.delta),
+          ),
+          ShowShortcutsIntent: CallbackAction<ShowShortcutsIntent>(
+            onInvoke: (_) => showShortcutsDialog(context),
+          ),
+          ZoomIntent: CallbackAction<ZoomIntent>(
+            onInvoke: (intent) => zoomActiveBy(ref, intent.factor),
+          ),
+          ResetViewIntent: CallbackAction<ResetViewIntent>(
+            onInvoke: (_) => sessions.resetView(),
           ),
 
           NewTabIntent: CallbackAction<NewTabIntent>(

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/domain/models/models.dart';
+import 'package:inkpad/engine/export_png.dart';
 import 'package:inkpad/format/format.dart';
 import 'package:inkpad/state/state.dart';
 import 'package:path/path.dart' as p;
+import 'package:inkpad/ui/export_dialog.dart';
 import 'package:inkpad/ui/new_document_dialog.dart';
 
 /// What the user chose when asked about an unsaved document.
@@ -145,8 +147,18 @@ Future<bool> _promptRecovery(BuildContext context, String path) async {
 }
 
 /// File → New: asks for a canvas size, then opens a tab holding it.
+///
+/// The dialog opens on the stored defaults from Preferences (15.3).
 Future<void> newSession(BuildContext context, WidgetRef ref) async {
-  final choice = await showNewDocumentDialog(context);
+  final prefs = ref.read(preferencesProvider).value ?? const Preferences();
+  final choice = await showNewDocumentDialog(
+    context,
+    defaults: (
+      width: prefs.canvasWidth,
+      height: prefs.canvasHeight,
+      fitToWindow: prefs.fitNewToWindow,
+    ),
+  );
   if (choice == null) return;
 
   ref
@@ -158,6 +170,44 @@ Future<void> newSession(BuildContext context, WidgetRef ref) async {
         ),
         fitToWindow: choice.fitToWindow,
       );
+}
+
+/// File → Export → PNG: flattens the active document and writes it.
+///
+/// The exported file is not the document: exporting never gives the session a
+/// `filePath`, never marks it clean, and never appears in Open Recent.
+Future<bool> exportActiveSessionPng(BuildContext context, WidgetRef ref) async {
+  final session = ref.read(sessionsProvider).activeSession;
+  final document = session.document;
+
+  final choice = await showExportDialog(
+    context,
+    documentWidth: document.canvasWidth,
+    documentHeight: document.canvasHeight,
+  );
+  if (choice == null) return false;
+
+  final files = ref.read(fileServiceProvider);
+  if (!context.mounted) return false;
+  final path = await files.pickExportPath(
+    suggestedName: '${p.basenameWithoutExtension(session.title)}.png',
+  );
+  if (path == null) return false;
+
+  try {
+    final bytes = await renderDocumentPng(
+      document,
+      scale: choice.scale,
+      transparentBackground: choice.transparent,
+    );
+    await files.writeBytes(path, bytes);
+  } on Object catch (error) {
+    if (context.mounted) {
+      await _showError(context, 'Could not export the PNG', '$error');
+    }
+    return false;
+  }
+  return true;
 }
 
 /// Closes a tab, offering to save it first when it holds unsaved work.

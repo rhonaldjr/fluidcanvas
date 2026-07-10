@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/state/document_session.dart';
 import 'package:inkpad/state/file_service.dart';
+import 'package:inkpad/state/preferences.dart';
 import 'package:inkpad/state/sessions_notifier.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -108,15 +109,36 @@ final autosaveProvider = Provider<Autosave>(
 /// Deliberately not started by `AppShell`: a widget test that pumps the shell
 /// would then leave a three-minute timer pending and fail on it.
 class AutosaveTicker {
-  AutosaveTicker(this.ref, {this.interval = kAutosaveInterval});
+  AutosaveTicker(this.ref, {this.interval});
 
   final Ref ref;
-  final Duration interval;
+
+  /// Fixed interval, for tests. When null the preference decides, and a
+  /// preference of zero minutes turns autosave off.
+  final Duration? interval;
+
   Timer? _timer;
 
+  /// The interval in force, or `null` when autosave is switched off.
+  Duration? get effectiveInterval {
+    if (interval != null) return interval;
+    final prefs = ref.read(preferencesProvider).value ?? const Preferences();
+    return prefs.autosaveEnabled ? prefs.autosaveInterval : null;
+  }
+
+  /// Starts the timer, and restarts it whenever the interval preference
+  /// changes — a user who sets 1 minute should not wait out the old 3.
   void start() {
+    ref.listen(preferencesProvider, (_, _) => _restart());
+    _restart();
+  }
+
+  void _restart() {
     _timer?.cancel();
-    _timer = Timer.periodic(interval, (_) => tick());
+    _timer = null;
+    final every = effectiveInterval;
+    if (every == null) return;
+    _timer = Timer.periodic(every, (_) => tick());
   }
 
   Future<void> tick() =>

@@ -57,7 +57,17 @@ Uint8List _entry(Archive archive, String name) {
   if (file == null) {
     throw SkdFormatException('the archive has no "$name"');
   }
-  return file.content;
+  // `content` inflates on first access, so a corrupt deflate stream throws
+  // here rather than in `decodeBytes` — as a `FormatException` from the
+  // inflater, which is not this library's exception. A caller that catches
+  // `SkdFormatException` around an Open would otherwise see it escape.
+  try {
+    return file.content;
+  } on SkdFormatException {
+    rethrow;
+  } on Object catch (e) {
+    throw SkdFormatException('"$name" is corrupt ($e)');
+  }
 }
 
 Map<String, dynamic> _json(Archive archive, String name) {

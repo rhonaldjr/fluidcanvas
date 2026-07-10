@@ -5,6 +5,8 @@
 export 'bounds.dart';
 export 'box_resize.dart';
 export 'canvas_element.dart';
+export 'connector_routing.dart';
+export 'element_ids.dart';
 export 'layer.dart';
 export 'skd_document.dart';
 export 'stroke_point.dart';

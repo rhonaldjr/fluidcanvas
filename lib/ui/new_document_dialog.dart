@@ -26,14 +26,24 @@ const List<CanvasPreset> kCanvasPresets = [
 ];
 
 /// Asks for the new document's canvas size. `null` when cancelled.
-Future<NewDocumentChoice?> showNewDocumentDialog(BuildContext context) =>
-    showDialog<NewDocumentChoice>(
-      context: context,
-      builder: (context) => const NewDocumentDialog(),
-    );
+///
+/// [defaults] seeds the fields — task 15.3's stored preference, or the
+/// built-in default when none has been saved.
+Future<NewDocumentChoice?> showNewDocumentDialog(
+  BuildContext context, {
+  NewDocumentChoice defaults = (width: 1920, height: 1080, fitToWindow: true),
+}) => showDialog<NewDocumentChoice>(
+  context: context,
+  builder: (context) => NewDocumentDialog(defaults: defaults),
+);
 
 class NewDocumentDialog extends StatefulWidget {
-  const NewDocumentDialog({super.key});
+  const NewDocumentDialog({
+    this.defaults = (width: 1920, height: 1080, fitToWindow: true),
+    super.key,
+  });
+
+  final NewDocumentChoice defaults;
 
   @override
   State<NewDocumentDialog> createState() => _NewDocumentDialogState();
@@ -42,10 +52,10 @@ class NewDocumentDialog extends StatefulWidget {
 class _NewDocumentDialogState extends State<NewDocumentDialog> {
   /// On by default: a new document that tracks the window is what every
   /// previous phase produced, and 8.5 keeps that the default.
-  bool _fitToWindow = true;
+  late bool _fitToWindow = widget.defaults.fitToWindow;
 
-  final _width = TextEditingController(text: '1920');
-  final _height = TextEditingController(text: '1080');
+  late final _width = TextEditingController(text: '${widget.defaults.width}');
+  late final _height = TextEditingController(text: '${widget.defaults.height}');
 
   @override
   void dispose() {

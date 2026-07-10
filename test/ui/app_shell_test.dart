@@ -41,26 +41,22 @@ void main() {
     expect(edit.left, greaterThan(file.right));
   });
 
-  testWidgets('the File menu is wired up, bar the export Phase 15 adds', (
-    tester,
-  ) async {
+  testWidgets('every File menu item is wired up', (tester) async {
     await _pumpShell(tester);
 
     await tester.tap(find.text('File'));
     await tester.pumpAndSettle();
 
-    for (final key in ['menu-new', 'menu-open', 'menu-save', 'menu-save-as']) {
+    for (final key in [
+      'menu-new',
+      'menu-open',
+      'menu-save',
+      'menu-save-as',
+      'menu-export',
+    ]) {
       final item = tester.widget<MenuItemButton>(find.byKey(Key(key)));
       expect(item.onPressed, isNotNull, reason: key);
     }
-
-    final export = tester.widget<MenuItemButton>(
-      find.ancestor(
-        of: find.text('Export PNG…'),
-        matching: find.byType(MenuItemButton),
-      ),
-    );
-    expect(export.onPressed, isNull, reason: 'task 15.1 wires this up');
   });
 
   testWidgets('the toolbar strip spans the full height below the menu bar', (

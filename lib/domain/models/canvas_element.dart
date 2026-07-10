@@ -9,10 +9,12 @@ import 'package:inkpad/domain/models/stroke_point.dart';
 part 'shape.dart';
 part 'text_element.dart';
 part 'stroke.dart';
+part 'group.dart';
+part 'connector.dart';
 
 /// Anything that can live in a `Layer`: a freehand [Stroke], a parametric
-/// [Shape], or a [TextElement]. Elements are immutable; mutate by producing a
-/// copy.
+/// [Shape], a [TextElement], a [Connector], or a [Group] of any of them.
+/// Elements are immutable; mutate by producing a copy.
 ///
 /// This type is **sealed**. Adding a variant means updating the codec, the
 /// renderer, and hit-testing — the compiler will point at every switch that

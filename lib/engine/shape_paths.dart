@@ -38,16 +38,30 @@ Path buildShapePath(ShapeType type, Rect rect, {double strokeWidth = 1}) {
 
 /// A shaft from the box's top-left to its bottom-right, with a head on the end.
 Path _arrowPath(Rect rect, double strokeWidth) {
-  final start = rect.topLeft;
-  final end = rect.bottomRight;
+  final path = Path()
+    ..moveTo(rect.left, rect.top)
+    ..lineTo(rect.right, rect.bottom);
+  return path..addPath(arrowHeadPath(rect, strokeWidth), Offset.zero);
+}
+
+/// The two barbs at the end of an arrow, with no shaft.
+///
+/// Shared with the rough renderer, whose shaft wobbles while its head stays
+/// crisp — a wobbly head stops reading as a head.
+Path arrowHeadPath(Rect rect, double strokeWidth) =>
+    arrowHeadAt(rect.topLeft, rect.bottomRight, strokeWidth);
+
+/// The barbs at [end] for a shaft running [start] → [end].
+///
+/// Takes points, not a `Rect`: a `Rect` normalizes its corners, so an arrow
+/// pointing up-left would come out of it pointing down-right. A connector runs
+/// in every direction.
+Path arrowHeadAt(Offset start, Offset end, double strokeWidth) {
+  final path = Path();
 
   final dx = end.dx - start.dx;
   final dy = end.dy - start.dy;
   final length = math.sqrt(dx * dx + dy * dy);
-
-  final path = Path()
-    ..moveTo(start.dx, start.dy)
-    ..lineTo(end.dx, end.dy);
   if (length < 1e-9) return path;
 
   // The head never grows longer than the shaft, or a tiny arrow turns into a
