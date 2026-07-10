@@ -127,6 +127,34 @@ class RotateElementsCommand extends _TransformElementsCommand {
       element.rotated(radians, originX: originX, originY: originY);
 }
 
+/// Binds a text element to a sibling's outline, or unbinds it.
+///
+/// A bound text flows its glyphs along that sibling and follows it when it
+/// moves — nothing needs updating, because the binding is an id, resolved on
+/// every draw, exactly like a connector end.
+class BindTextToPathCommand extends Command {
+  BindTextToPathCommand({required this.before, required this.pathElementId});
+
+  final TextElement before;
+
+  /// The sibling to flow along, or null to detach.
+  final String? pathElementId;
+
+  @override
+  String get label => pathElementId == null ? 'Detach Text' : 'Text on Path';
+
+  @override
+  SkdDocument apply(SkdDocument document) => _replaceAll(document, [
+    before.copyWith(
+      pathElementId: pathElementId,
+      clearPath: pathElementId == null,
+    ),
+  ]);
+
+  @override
+  SkdDocument revert(SkdDocument document) => _replaceAll(document, [before]);
+}
+
 /// Restyles shapes. Strokes in the selection are left alone.
 class StyleElementsCommand extends _TransformElementsCommand {
   StyleElementsCommand({
@@ -208,6 +236,10 @@ class StyleTextRunsCommand extends Command {
     this.bold,
     this.italic,
     this.underline,
+    this.fontSize,
+    this.setFontSize = false,
+    this.colorRGBA,
+    this.setColor = false,
   });
 
   final TextElement before;
@@ -217,21 +249,45 @@ class StyleTextRunsCommand extends Command {
   final bool? italic;
   final bool? underline;
 
+  /// A per-run size for the range. Applied only when [setFontSize] is true; a
+  /// null [fontSize] then *clears* the override so the range inherits the
+  /// element's size again.
+  final double? fontSize;
+  final bool setFontSize;
+
+  /// A per-run colour, applied only when [setColor] is true; null clears it.
+  final int? colorRGBA;
+  final bool setColor;
+
   @override
   String get label => 'Style Text';
 
   @override
-  SkdDocument apply(SkdDocument document) => _replaceAll(document, [
-    before.copyWith(
-      runs: before.runsWithStyle(
-        start,
-        end,
-        bold: bold,
-        italic: italic,
-        underline: underline,
-      ),
-    ),
-  ]);
+  SkdDocument apply(SkdDocument document) {
+    var element = before;
+    if (bold != null || italic != null || underline != null) {
+      element = element.copyWith(
+        runs: element.runsWithStyle(
+          start,
+          end,
+          bold: bold,
+          italic: italic,
+          underline: underline,
+        ),
+      );
+    }
+    if (setFontSize) {
+      element = element.copyWith(
+        runs: element.runsWithFontSize(start, end, fontSize),
+      );
+    }
+    if (setColor) {
+      element = element.copyWith(
+        runs: element.runsWithColor(start, end, colorRGBA),
+      );
+    }
+    return _replaceAll(document, [element]);
+  }
 
   @override
   SkdDocument revert(SkdDocument document) => _replaceAll(document, [before]);
@@ -245,6 +301,7 @@ class StyleTextElementCommand extends Command {
     this.fontSize,
     this.colorRGBA,
     this.align,
+    this.listStyle,
   });
 
   final TextElement before;
@@ -252,6 +309,7 @@ class StyleTextElementCommand extends Command {
   final double? fontSize;
   final int? colorRGBA;
   final TextAlignment? align;
+  final ListStyle? listStyle;
 
   @override
   String get label => 'Change Text Style';
@@ -263,6 +321,7 @@ class StyleTextElementCommand extends Command {
       fontSize: fontSize,
       colorRGBA: colorRGBA,
       align: align,
+      listStyle: listStyle,
     ),
   ]);
 

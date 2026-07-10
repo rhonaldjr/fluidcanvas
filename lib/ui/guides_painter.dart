@@ -11,6 +11,7 @@ class GridPainter extends CustomPainter {
     required this.gridSize,
     required this.scale,
     required this.color,
+    this.origin = Offset.zero,
   });
 
   /// In document pixels.
@@ -20,6 +21,10 @@ class GridPainter extends CustomPainter {
   final double scale;
 
   final Color color;
+
+  /// Where document (0, 0) sits in the painter's box, so the grid lines up with
+  /// document coordinates however the canvas is panned.
+  final Offset origin;
 
   /// Below this many screen pixels apart, a grid is a grey wash. Stop drawing
   /// it rather than painting a thousand invisible lines.
@@ -35,17 +40,23 @@ class GridPainter extends CustomPainter {
       ..color = color
       ..strokeWidth = 1;
 
-    for (var x = spacing; x < size.width; x += spacing) {
+    // First grid line at or after the left/top edge, aligned to the origin.
+    final firstX = origin.dx - (origin.dx / spacing).floor() * spacing;
+    final firstY = origin.dy - (origin.dy / spacing).floor() * spacing;
+    for (var x = firstX; x < size.width; x += spacing) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
-    for (var y = spacing; y < size.height; y += spacing) {
+    for (var y = firstY; y < size.height; y += spacing) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
     }
   }
 
   @override
   bool shouldRepaint(GridPainter old) =>
-      old.gridSize != gridSize || old.scale != scale || old.color != color;
+      old.gridSize != gridSize ||
+      old.scale != scale ||
+      old.color != color ||
+      old.origin != origin;
 }
 
 /// The lines showing what the dragged element is currently aligned with.
@@ -54,18 +65,22 @@ class GuidesPainter extends CustomPainter {
     required this.guides,
     required this.scale,
     required this.color,
+    this.origin = Offset.zero,
   });
 
   final List<SnapGuide> guides;
   final double scale;
   final Color color;
+  final Offset origin;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (scale <= 0 || guides.isEmpty) return;
 
     canvas.save();
-    canvas.scale(scale);
+    canvas
+      ..translate(origin.dx, origin.dy)
+      ..scale(scale);
 
     final paint = Paint()
       ..color = color

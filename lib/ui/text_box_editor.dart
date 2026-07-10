@@ -74,10 +74,18 @@ class _RunsController extends TextEditingController {
 /// Home/End, click-to-place and drag-to-select with it, all of which task 10.5
 /// asks for and none of which is interesting to reimplement.
 class TextBoxEditor extends ConsumerStatefulWidget {
-  const TextBoxEditor({required this.scale, super.key});
+  const TextBoxEditor({
+    required this.scale,
+    this.origin = Offset.zero,
+    super.key,
+  });
 
   /// Page screen size divided by document size.
   final double scale;
+
+  /// Where document (0, 0) sits in the canvas box; the pan offset on an
+  /// infinite canvas, zero on a bounded page.
+  final Offset origin;
 
   @override
   ConsumerState<TextBoxEditor> createState() => _TextBoxEditorState();

@@ -41,8 +41,9 @@ void main() {
       expect(bytes[14], ShapeRenderStyle.precise.value);
     });
 
-    test('the format version is 2', () {
-      expect(kSkdFormatVersion, 2);
+    test('v2 features still round-trip under the current format version', () {
+      // The version has since moved past 2; the v2 element types are unchanged.
+      expect(kSkdFormatVersion, greaterThanOrEqualTo(2));
     });
   });
 

@@ -157,6 +157,7 @@ Future<void> newSession(BuildContext context, WidgetRef ref) async {
       width: prefs.canvasWidth,
       height: prefs.canvasHeight,
       fitToWindow: prefs.fitNewToWindow,
+      infinite: false,
     ),
   );
   if (choice == null) return;
@@ -167,6 +168,9 @@ Future<void> newSession(BuildContext context, WidgetRef ref) async {
         SkdDocument.newDefault(
           canvasWidth: choice.width,
           canvasHeight: choice.height,
+          canvasMode: choice.infinite
+              ? CanvasMode.infinite
+              : CanvasMode.bounded,
         ),
         fitToWindow: choice.fitToWindow,
       );

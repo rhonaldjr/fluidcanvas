@@ -9,6 +9,7 @@ import 'package:inkpad/domain/commands/commands.dart'
     show AddElementCommand, kMinCanvasHeight, kMinCanvasWidth;
 import 'package:inkpad/engine/debouncer.dart';
 import 'package:inkpad/engine/pointer_input.dart';
+import 'package:inkpad/engine/renderer/infinite_painter.dart';
 import 'package:inkpad/engine/renderer/layer_stack_painter.dart';
 import 'package:inkpad/engine/hit_test.dart';
 import 'package:inkpad/engine/shape_drag.dart';
@@ -171,25 +172,48 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
       color: const Color(0xFF6E6E6E),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          if (session.fitToWindow && constraints.biggest.isFinite) {
+          final isInfinite = document.isInfinite;
+          // An infinite document never resizes to follow the window; you pan
+          // and zoom over it instead.
+          if (!isInfinite &&
+              session.fitToWindow &&
+              constraints.biggest.isFinite) {
             _scheduleResize(constraints.biggest);
           }
 
           final viewport = constraints.biggest;
-          final fitScale = CanvasView.fitScale(
-            viewport: viewport,
-            documentWidth: document.canvasWidth,
-            documentHeight: document.canvasHeight,
-          );
+          // A bounded page fits the window; an infinite one has no page to fit,
+          // so its "fitted" scale is simply 100%.
+          final fitScale = isInfinite
+              ? 1.0
+              : CanvasView.fitScale(
+                  viewport: viewport,
+                  documentWidth: document.canvasWidth,
+                  documentHeight: document.canvasHeight,
+                );
           final scale = session.view.scaleFor(fitScale);
-          final origin = pageOrigin(
-            view: session.view,
-            viewportWidth: viewport.width,
-            viewportHeight: viewport.height,
-            documentWidth: document.canvasWidth,
-            documentHeight: document.canvasHeight,
-            scale: scale,
-          );
+
+          // Where document (0, 0) sits on screen. A bounded page is placed so
+          // its top-left is document (0, 0); an infinite canvas centres the
+          // origin in the viewport and shifts it by the pan.
+          final Offset docOrigin;
+          if (isInfinite) {
+            docOrigin = Offset(
+              viewport.width / 2 + session.view.panX,
+              viewport.height / 2 + session.view.panY,
+            );
+          } else {
+            final o = pageOrigin(
+              view: session.view,
+              viewportWidth: viewport.width,
+              viewportHeight: viewport.height,
+              documentWidth: document.canvasWidth,
+              documentHeight: document.canvasHeight,
+              scale: scale,
+            );
+            docOrigin = Offset(o.x, o.y);
+          }
+
           // The status bar and the zoom shortcuts read these rather than
           // digging into the tree.
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -197,6 +221,81 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
             ref.read(pageScaleProvider.notifier).set(scale);
             ref.read(viewportProvider.notifier).set(viewport, fitScale);
           });
+
+          // The overlays that sit over the drawing, shared by both modes. Their
+          // origin is where document (0, 0) is *within their box*: zero inside a
+          // positioned bounded page, the pan offset over an infinite canvas.
+          final overlayOrigin = isInfinite ? docOrigin : Offset.zero;
+          Widget canvasStack(Widget layers) => Stack(
+            fit: StackFit.expand,
+            clipBehavior: Clip.none,
+            children: [
+              if (ref.watch(snapSettingsProvider).showGrid)
+                RepaintBoundary(
+                  child: CustomPaint(
+                    painter: GridPainter(
+                      gridSize: ref.watch(snapSettingsProvider).gridSize,
+                      scale: scale,
+                      origin: overlayOrigin,
+                      color: Colors.black.withValues(alpha: 0.08),
+                    ),
+                  ),
+                ),
+              layers,
+              RepaintBoundary(
+                child: CustomPaint(
+                  painter: SelectionOverlayPainter(
+                    box: session.selection.isEmpty
+                        ? null
+                        : session.selectionBounds,
+                    marquee: ref.watch(marqueeProvider),
+                    scale: scale,
+                    origin: overlayOrigin,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+              RepaintBoundary(
+                child: CustomPaint(
+                  painter: GuidesPainter(
+                    guides: ref.watch(snapGuidesProvider),
+                    scale: scale,
+                    origin: overlayOrigin,
+                    color: const Color(0xFFE91E63),
+                  ),
+                ),
+              ),
+              StrokeCapture(scale: scale, origin: overlayOrigin),
+              TextBoxEditor(scale: scale, origin: overlayOrigin),
+            ],
+          );
+
+          if (isInfinite) {
+            return _NavigationLayer(
+              viewport: viewport,
+              fitScale: fitScale,
+              child: SizedBox.expand(
+                key: const Key('canvas-page'),
+                child: scale > 0
+                    ? canvasStack(
+                        RepaintBoundary(
+                          child: CustomPaint(
+                            painter: InfiniteCanvasPainter(
+                              layers: document.layers,
+                              activeLayerId: session.activeLayerId,
+                              scale: scale,
+                              origin: docOrigin,
+                              liveStroke: liveStroke,
+                              liveShape: liveShape,
+                              liveConnector: liveConnector,
+                            ),
+                          ),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            );
+          }
 
           LayerStackPainter painterFor(
             List<Layer> layers,
@@ -222,8 +321,8 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
             child: Stack(
               children: [
                 Positioned(
-                  left: origin.x,
-                  top: origin.y,
+                  left: docOrigin.dx,
+                  top: docOrigin.dy,
                   child: SizedBox(
                     key: const Key('canvas-page'),
                     width: document.canvasWidth * scale,
@@ -239,74 +338,37 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
                           ),
                         ],
                       ),
-                      // A zero-size page cannot map screen pixels into
-                      // document space, so there is nothing to draw or capture.
+                      // A zero-size page cannot map screen pixels into document
+                      // space, so there is nothing to draw or capture.
                       child: scale > 0
-                          ? Stack(
-                              fit: StackFit.expand,
-                              clipBehavior: Clip.none,
-                              children: [
-                                if (ref.watch(snapSettingsProvider).showGrid)
+                          ? canvasStack(
+                              Stack(
+                                fit: StackFit.expand,
+                                clipBehavior: Clip.none,
+                                children: [
                                   RepaintBoundary(
                                     child: CustomPaint(
-                                      painter: GridPainter(
-                                        gridSize: ref
-                                            .watch(snapSettingsProvider)
-                                            .gridSize,
-                                        scale: scale,
-                                        color: Colors.black.withValues(
-                                          alpha: 0.08,
-                                        ),
+                                      painter: painterFor(below, 'below'),
+                                    ),
+                                  ),
+                                  RepaintBoundary(
+                                    child: CustomPaint(
+                                      painter: painterFor(
+                                        active,
+                                        'active',
+                                        live: liveStroke,
+                                        shape: liveShape,
+                                        connector: liveConnector,
                                       ),
                                     ),
                                   ),
-                                RepaintBoundary(
-                                  child: CustomPaint(
-                                    painter: painterFor(below, 'below'),
-                                  ),
-                                ),
-                                RepaintBoundary(
-                                  child: CustomPaint(
-                                    painter: painterFor(
-                                      active,
-                                      'active',
-                                      live: liveStroke,
-                                      shape: liveShape,
-                                      connector: liveConnector,
+                                  RepaintBoundary(
+                                    child: CustomPaint(
+                                      painter: painterFor(above, 'above'),
                                     ),
                                   ),
-                                ),
-                                RepaintBoundary(
-                                  child: CustomPaint(
-                                    painter: painterFor(above, 'above'),
-                                  ),
-                                ),
-                                RepaintBoundary(
-                                  child: CustomPaint(
-                                    painter: SelectionOverlayPainter(
-                                      box: session.selection.isEmpty
-                                          ? null
-                                          : session.selectionBounds,
-                                      marquee: ref.watch(marqueeProvider),
-                                      scale: scale,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                    ),
-                                  ),
-                                ),
-                                RepaintBoundary(
-                                  child: CustomPaint(
-                                    painter: GuidesPainter(
-                                      guides: ref.watch(snapGuidesProvider),
-                                      scale: scale,
-                                      color: const Color(0xFFE91E63),
-                                    ),
-                                  ),
-                                ),
-                                StrokeCapture(scale: scale),
-                                TextBoxEditor(scale: scale),
-                              ],
+                                ],
+                              ),
                             )
                           : null,
                     ),
@@ -327,10 +389,18 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
 /// From task 6.2 the commit is routed through `AddElementCommand` so it can be
 /// undone; today it mutates the session directly.
 class StrokeCapture extends ConsumerStatefulWidget {
-  const StrokeCapture({required this.scale, super.key});
+  const StrokeCapture({
+    required this.scale,
+    this.origin = Offset.zero,
+    super.key,
+  });
 
   /// Page screen size divided by document size.
   final double scale;
+
+  /// Where document (0, 0) sits in the capture box; the pan offset on an
+  /// infinite canvas, zero on a bounded page.
+  final Offset origin;
 
   @override
   ConsumerState<StrokeCapture> createState() => _StrokeCaptureState();
@@ -392,7 +462,7 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
   CurrentStrokeNotifier get _stroke => ref.read(currentStrokeProvider.notifier);
 
   StrokePoint _pointFrom(PointerEvent event) => documentPoint(
-    local: event.localPosition,
+    local: event.localPosition - widget.origin,
     scale: widget.scale,
     pressure: normalizePressure(
       pressure: event.pressure,

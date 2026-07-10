@@ -3,10 +3,12 @@ import 'package:inkpad/format/skd_exception.dart';
 /// The format version this build writes.
 ///
 /// v2 adds `elementType` 3 (connector) and 4 (group), and spends one of the
-/// shape body's two reserved bytes on its render style. A v2 reader opens every
-/// v1 file; a v1 reader refuses a v2 file with "written by a newer version"
-/// rather than choking on an element type it has never heard of.
-const int kSkdFormatVersion = 2;
+/// shape body's two reserved bytes on its render style. v3 adds per-run font
+/// size and colour (text run styleFlags bits 3 and 4, self-describing) and a
+/// per-document canvas mode. Each reader opens every older file; an older
+/// reader refuses a newer one with "written by a newer version" rather than
+/// misparsing a record whose shape it does not know.
+const int kSkdFormatVersion = 3;
 
 /// The `mimetype` entry's contents — the first, uncompressed entry in the ZIP.
 const String kSkdMimeType = 'application/x-skd';

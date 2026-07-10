@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:inkpad/domain/models/models.dart';
+import 'package:inkpad/engine/export_png.dart' show exportRegion;
 import 'package:inkpad/engine/renderer/document_painter.dart';
 
 /// Longest edge of the `thumbnail.png` stored in a `.skd`.
@@ -37,19 +38,22 @@ Future<Uint8List> renderThumbnailPng(
   SkdDocument document, {
   int maxSize = kThumbnailMaxSize,
 }) async {
+  // Bounded documents thumbnail their page; infinite ones their content.
+  final region = exportRegion(document);
   final size = thumbnailSizeFor(
-    document.canvasWidth,
-    document.canvasHeight,
+    math.max(1, region.width.round()),
+    math.max(1, region.height.round()),
     maxSize: maxSize,
   );
-  final scale = size.width / document.canvasWidth;
+  final scale = size.width / math.max(1.0, region.width);
 
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder)
     ..drawRect(
       Rect.fromLTWH(0, 0, size.width.toDouble(), size.height.toDouble()),
       Paint()..color = colorFromRGBA(document.backgroundRGBA),
-    );
+    )
+    ..translate(-region.left * scale, -region.top * scale);
 
   DocumentPainter(
     document: document,

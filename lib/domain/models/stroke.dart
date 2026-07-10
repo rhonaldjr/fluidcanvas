@@ -2,9 +2,17 @@ part of 'canvas_element.dart';
 
 /// Tool that drew a stroke. Stored as a `u8` in the `.skd` element blob, so the
 /// numeric values are part of the file format and must never be reassigned.
+///
+/// New brush engines append here. They need no format bump: the reader stores
+/// the raw byte and never validated it, so a build that has never heard of
+/// [pencil] reads a pencil stroke and draws it as a [pen] — graceful, not a
+/// rejection. That is why brushes stay v1-compatible.
 abstract final class ToolId {
   static const int pen = 0;
   static const int eraser = 1;
+  static const int pencil = 2;
+  static const int airbrush = 3;
+  static const int texture = 4;
 }
 
 /// A freehand stroke: an ordered run of pressure-sampled points.

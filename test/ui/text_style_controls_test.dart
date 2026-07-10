@@ -14,7 +14,7 @@ Future<ProviderContainer> pumpShell(
   WidgetTester tester, {
   List<String> installed = _installed,
 }) async {
-  await tester.binding.setSurfaceSize(const Size(1100, 1400));
+  await tester.binding.setSurfaceSize(const Size(1100, 1800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
   final container = ProviderContainer.test(

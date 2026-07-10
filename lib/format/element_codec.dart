@@ -69,7 +69,7 @@ void _writeElement(
       out
         ..uint8(ElementType.text)
         ..reserved(3);
-      _writeText(out, element);
+      _writeText(out, element, siblings);
     case Connector():
       out
         ..uint8(ElementType.connector)
@@ -124,6 +124,7 @@ List<CanvasElement> _readElements(
 ) {
   final elements = <CanvasElement>[];
   final bindings = <int, (int, int)>{};
+  final textPaths = <int, int>{};
 
   for (var i = 0; i < count; i++) {
     final type = input.uint8();
@@ -135,7 +136,9 @@ List<CanvasElement> _readElements(
       case ElementType.shape:
         elements.add(_readShape(input, newId()));
       case ElementType.text:
-        elements.add(_readText(input, newId()));
+        final (text, pathIndex) = _readText(input, newId());
+        if (pathIndex != kNoBinding) textPaths[elements.length] = pathIndex;
+        elements.add(text);
       case ElementType.connector:
         final (connector, start, end) = _readConnector(input, newId());
         bindings[elements.length] = (start, end);
@@ -149,7 +152,7 @@ List<CanvasElement> _readElements(
     }
   }
 
-  return _resolveBindings(elements, bindings);
+  return _resolveBindings(elements, bindings, textPaths);
 }
 
 /// Turns the stored indices back into element ids.
@@ -160,14 +163,18 @@ List<CanvasElement> _readElements(
 List<CanvasElement> _resolveBindings(
   List<CanvasElement> elements,
   Map<int, (int, int)> bindings,
+  Map<int, int> textPaths,
 ) {
-  if (bindings.isEmpty) return elements;
+  if (bindings.isEmpty && textPaths.isEmpty) return elements;
 
+  // A binding is only good if it names another element that can be an anchor.
+  // A connector, a text element's own index, or an out-of-range index all read
+  // as "no binding" rather than a crash.
   String? idAt(int index, int self) {
     if (index == kNoBinding || index < 0 || index >= elements.length) {
       return null;
     }
-    if (index == self) return null; // A connector cannot bind to itself.
+    if (index == self) return null;
     if (elements[index] is Connector) return null;
     return elements[index].id;
   }
@@ -184,6 +191,15 @@ List<CanvasElement> _resolveBindings(
       start: startId == null ? connector.start : ConnectorEnd.bound(startId),
       end: endId == null ? connector.end : ConnectorEnd.bound(endId),
     );
+  }
+
+  for (final entry in textPaths.entries) {
+    final at = entry.key;
+    final text = elements[at] as TextElement;
+    final pathId = idAt(entry.value, at);
+    elements[at] = pathId == null
+        ? text.copyWith(clearPath: true)
+        : text.copyWith(pathElementId: pathId);
   }
   return elements;
 }
@@ -417,7 +433,11 @@ Shape _readShape(_ByteReader input, String id) {
   );
 }
 
-void _writeText(_ByteWriter out, TextElement text) {
+void _writeText(
+  _ByteWriter out,
+  TextElement text,
+  List<CanvasElement> siblings,
+) {
   out
     ..float32(text.x)
     ..float32(text.y)
@@ -427,19 +447,36 @@ void _writeText(_ByteWriter out, TextElement text) {
     ..float32(text.fontSize)
     ..uint32(text.colorRGBA)
     ..uint8(text.align.value)
-    ..reserved(3)
+    // The first reserved byte carries the list style; the second a flag byte
+    // whose bit 0 says a path-binding index follows the runs. v1/v2/v3 files
+    // wrote zeros here, so they read as a plain, unbound text box.
+    ..uint8(text.listStyle.value)
+    ..uint8(text.isOnPath ? 0x1 : 0)
+    ..reserved(1)
     ..lengthPrefixedUtf8(text.fontFamily)
     ..uint32(text.runs.length);
 
   for (final run in text.runs) {
     out
       ..uint8(run.styleFlags)
-      ..reserved(3)
-      ..lengthPrefixedUtf8(run.text);
+      ..reserved(3);
+    // Optional per-run size and colour, present only when their flag bit is
+    // set (bits 3 and 4). A v1/v2 run set neither bit, so this writes nothing
+    // extra for it and the record stays exactly the length it always was.
+    if (run.fontSize != null) out.float32(run.fontSize!);
+    if (run.colorRGBA != null) out.uint32(run.colorRGBA!);
+    out.lengthPrefixedUtf8(run.text);
+  }
+
+  // The path-binding index goes last, so a reader that does not know the flag
+  // never looks for it. Stored as a sibling index, like a connector end.
+  if (text.isOnPath) {
+    final index = siblings.indexWhere((e) => e.id == text.pathElementId);
+    out.uint32(index == -1 ? kNoBinding : index);
   }
 }
 
-TextElement _readText(_ByteReader input, String id) {
+(TextElement, int) _readText(_ByteReader input, String id) {
   final x = input.float32();
   final y = input.float32();
   final w = input.float32();
@@ -448,7 +485,10 @@ TextElement _readText(_ByteReader input, String id) {
   final fontSize = input.float32();
   final colorRGBA = input.uint32();
   final alignValue = input.uint8();
-  input.skip(3);
+  final listStyle = ListStyle.fromValue(input.uint8());
+  final textFlags = input.uint8();
+  input.skip(1);
+  final hasPath = textFlags & 0x1 != 0;
 
   final TextAlignment align;
   try {
@@ -463,23 +503,44 @@ TextElement _readText(_ByteReader input, String id) {
   for (var i = 0; i < runCount; i++) {
     final flags = input.uint8();
     input.skip(3);
-    runs.add(TextRun.fromFlags(input.lengthPrefixedUtf8(), flags));
+    // The flag bits are self-describing, so this reads v1/v2 and v3 runs the
+    // same way — an old run has bits 3/4 clear and carries no size or colour.
+    final fontSize = flags & 0x8 != 0
+        ? _positive(input.float32(), 'run fontSize')
+        : null;
+    final colorRGBA = flags & 0x10 != 0 ? input.uint32() : null;
+    runs.add(
+      TextRun.fromFlags(
+        input.lengthPrefixedUtf8(),
+        flags,
+        fontSize: fontSize,
+        colorRGBA: colorRGBA,
+      ),
+    );
   }
 
-  return TextElement(
-    id: id,
-    x: x,
-    y: y,
-    w: _positive(w, 'text width'),
-    h: _positive(h, 'text height'),
-    rotation: rotation,
-    fontFamily: family,
-    fontSize: _positive(fontSize, 'text fontSize'),
-    colorRGBA: colorRGBA,
-    align: align,
-    // Readers tolerate a file whose runs are unmerged or empty; the model
-    // normalizes them.
-    runs: runs,
+  // The path index sits after the runs, present only when the flag is set.
+  final pathIndex = hasPath ? input.uint32() : kNoBinding;
+
+  return (
+    TextElement(
+      id: id,
+      x: x,
+      y: y,
+      w: _positive(w, 'text width'),
+      h: _positive(h, 'text height'),
+      rotation: rotation,
+      fontFamily: family,
+      fontSize: _positive(fontSize, 'text fontSize'),
+      colorRGBA: colorRGBA,
+      align: align,
+      listStyle: listStyle,
+      // Rebound to an id in the resolution pass; a placeholder until then.
+      // Readers tolerate a file whose runs are unmerged or empty; the model
+      // normalizes them.
+      runs: runs,
+    ),
+    pathIndex,
   );
 }
 

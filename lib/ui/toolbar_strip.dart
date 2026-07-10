@@ -63,6 +63,9 @@ class ToolSelector extends ConsumerWidget {
         for (final (value, icon, label) in [
           (Tool.select, Icons.near_me_outlined, 'Select'),
           (Tool.pen, Icons.edit, 'Pen'),
+          (Tool.pencil, Icons.draw, 'Pencil'),
+          (Tool.airbrush, Icons.blur_on, 'Airbrush'),
+          (Tool.texture, Icons.grain, 'Texture'),
           (Tool.eraser, Icons.cleaning_services, 'Eraser'),
           (Tool.rectangle, Icons.crop_square, 'Rectangle'),
           (Tool.ellipse, Icons.circle_outlined, 'Ellipse'),
@@ -309,6 +312,8 @@ class TextStyleControls extends ConsumerWidget {
               ),
           ],
         ),
+        _ListStyleButtons(selected: selectedText),
+        _TextPathButton(selected: selectedText),
         _FontFamilyPicker(selected: selectedText),
         if (selectedText != null &&
             !ref.watch(fontAvailabilityProvider)(selectedText.fontFamily))
@@ -324,18 +329,18 @@ class TextStyleControls extends ConsumerWidget {
             keyboardType: TextInputType.number,
             onSubmitted: (value) {
               final size = double.tryParse(value);
-              if (size == null) return;
+              if (size == null || size <= 0) return;
               ref.read(textStyleProvider.notifier).setSize(size);
-              final element = ref
-                  .read(activeSessionProvider)
-                  .selectedElements
-                  .whereType<TextElement>()
-                  .firstOrNull;
-              if (element != null) {
-                ref
+              applyTextRunStyle(
+                ref,
+                // A sub-range selected in the editor gets a per-run override;
+                // a box merely selected has its base size changed.
+                rangeRuns: (e, start, end) =>
+                    e.runsWithFontSize(start, end, size),
+                wholeElement: (e) => ref
                     .read(sessionsProvider.notifier)
-                    .styleTextElement(element, fontSize: size);
-              }
+                    .styleTextElement(e, fontSize: size),
+              );
             },
           ),
         ),
@@ -391,6 +396,44 @@ class TextStyleControls extends ConsumerWidget {
       sessions.commitTextEdit(element, runs);
     }
   }
+}
+
+/// Applies a text style change to the selected range when a box is being
+/// edited, or to the whole element when one is merely selected.
+///
+/// [rangeRuns] builds the runs for an in-editor selection; it coalesces into
+/// the running edit through `setRuns`, like the B/I/U buttons. [wholeElement]
+/// runs for a selected-but-not-editing box, where size and colour change the
+/// element's own defaults rather than laying a per-run override over every
+/// character.
+void applyTextRunStyle(
+  WidgetRef ref, {
+  required List<TextRun> Function(TextElement element, int start, int end)
+  rangeRuns,
+  required void Function(TextElement element) wholeElement,
+}) {
+  final editing = ref.read(textEditingProvider);
+  if (editing != null) {
+    final found = ref
+        .read(activeDocumentProvider)
+        .findElement(editing.elementId);
+    var element = found?.element as TextElement?;
+    if (element == null) return;
+    element = element.copyWith(runs: editing.runs);
+    final start = editing.hasSelection ? editing.selectionStart : 0;
+    final end = editing.hasSelection ? editing.selectionEnd : element.length;
+    if (end <= start) return;
+    ref
+        .read(textEditingProvider.notifier)
+        .setRuns(rangeRuns(element, start, end));
+    return;
+  }
+  final element = ref
+      .read(activeSessionProvider)
+      .selectedElements
+      .whereType<TextElement>()
+      .firstOrNull;
+  if (element != null) wholeElement(element);
 }
 
 enum _Attr {
@@ -646,12 +689,13 @@ class _TextColorButton extends ConsumerWidget {
           if (picked == null) return;
           ref.read(textStyleProvider.notifier).setColor(picked);
           ref.read(recentColorsProvider.notifier).add(picked);
-          final element = selected;
-          if (element != null) {
-            ref
+          applyTextRunStyle(
+            ref,
+            rangeRuns: (e, start, end) => e.runsWithColor(start, end, picked),
+            wholeElement: (e) => ref
                 .read(sessionsProvider.notifier)
-                .styleTextElement(element, colorRGBA: picked);
-          }
+                .styleTextElement(e, colorRGBA: picked),
+          );
         },
         child: Container(
           width: 24,
@@ -663,6 +707,70 @@ class _TextColorButton extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Bullet and numbered-list toggles for the selected text box.
+class _ListStyleButtons extends ConsumerWidget {
+  const _ListStyleButtons({required this.selected});
+
+  final TextElement? selected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = selected?.listStyle ?? ListStyle.none;
+
+    return Wrap(
+      alignment: WrapAlignment.center,
+      children: [
+        for (final (key, icon, style) in [
+          ('list-bullet', Icons.format_list_bulleted, ListStyle.bullet),
+          ('list-numbered', Icons.format_list_numbered, ListStyle.numbered),
+        ])
+          IconButton(
+            key: Key('text-$key'),
+            iconSize: 16,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 22, height: 22),
+            isSelected: current == style,
+            icon: Icon(icon),
+            onPressed: () {
+              final element = selected;
+              if (element == null) return;
+              // Clicking the active style turns the list back off.
+              final next = current == style ? ListStyle.none : style;
+              ref
+                  .read(sessionsProvider.notifier)
+                  .setTextListStyle(element, next);
+            },
+          ),
+      ],
+    );
+  }
+}
+
+/// Flows the selected text along a selected sibling's outline, or detaches it.
+///
+/// Enabled only when the action would do something: one text box plus one
+/// element with an outline, or a text box already on a path.
+class _TextPathButton extends ConsumerWidget {
+  const _TextPathButton({required this.selected});
+
+  final TextElement? selected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final onPath = selected?.isOnPath ?? false;
+    return IconButton(
+      key: const Key('text-on-path'),
+      iconSize: 16,
+      tooltip: onPath
+          ? 'Detach from path'
+          : 'Flow along a selected shape or line',
+      isSelected: onPath,
+      icon: const Icon(Icons.text_rotation_none),
+      onPressed: () => ref.read(sessionsProvider.notifier).toggleTextOnPath(),
     );
   }
 }

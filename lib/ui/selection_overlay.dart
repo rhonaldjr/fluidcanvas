@@ -134,6 +134,7 @@ class SelectionOverlayPainter extends CustomPainter {
     required this.scale,
     required this.color,
     this.marquee,
+    this.origin = Offset.zero,
   });
 
   /// The selection box in document space, or `null` when nothing is selected.
@@ -145,11 +146,17 @@ class SelectionOverlayPainter extends CustomPainter {
   /// The rubber-band rectangle being dragged, in document space.
   final Bounds? marquee;
 
+  /// Where document (0, 0) sits in this painter's box. Zero for a bounded page
+  /// (the painter fills the page); the pan offset for an infinite canvas.
+  final Offset origin;
+
   @override
   void paint(Canvas canvas, Size size) {
     if (scale <= 0) return;
     canvas.save();
-    canvas.scale(scale);
+    canvas
+      ..translate(origin.dx, origin.dy)
+      ..scale(scale);
 
     if (marquee != null) _paintMarquee(canvas, marquee!);
     if (box != null) _paintSelection(canvas, box!);
@@ -207,5 +214,6 @@ class SelectionOverlayPainter extends CustomPainter {
       old.box != box ||
       old.marquee != marquee ||
       old.scale != scale ||
-      old.color != color;
+      old.color != color ||
+      old.origin != origin;
 }

@@ -3,7 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:inkpad/domain/commands/commands.dart';
 
 /// The canvas a new document starts with.
-typedef NewDocumentChoice = ({int width, int height, bool fitToWindow});
+typedef NewDocumentChoice = ({
+  int width,
+  int height,
+  bool fitToWindow,
+  bool infinite,
+});
 
 /// Named canvas sizes, plus the fit-to-window default.
 class CanvasPreset {
@@ -31,7 +36,12 @@ const List<CanvasPreset> kCanvasPresets = [
 /// built-in default when none has been saved.
 Future<NewDocumentChoice?> showNewDocumentDialog(
   BuildContext context, {
-  NewDocumentChoice defaults = (width: 1920, height: 1080, fitToWindow: true),
+  NewDocumentChoice defaults = (
+    width: 1920,
+    height: 1080,
+    fitToWindow: true,
+    infinite: false,
+  ),
 }) => showDialog<NewDocumentChoice>(
   context: context,
   builder: (context) => NewDocumentDialog(defaults: defaults),
@@ -39,7 +49,12 @@ Future<NewDocumentChoice?> showNewDocumentDialog(
 
 class NewDocumentDialog extends StatefulWidget {
   const NewDocumentDialog({
-    this.defaults = (width: 1920, height: 1080, fitToWindow: true),
+    this.defaults = (
+      width: 1920,
+      height: 1080,
+      fitToWindow: true,
+      infinite: false,
+    ),
     super.key,
   });
 
@@ -53,6 +68,9 @@ class _NewDocumentDialogState extends State<NewDocumentDialog> {
   /// On by default: a new document that tracks the window is what every
   /// previous phase produced, and 8.5 keeps that the default.
   late bool _fitToWindow = widget.defaults.fitToWindow;
+
+  /// An unbounded canvas: no page, pan and zoom over an infinite plane.
+  bool _infinite = false;
 
   late final _width = TextEditingController(text: '${widget.defaults.width}');
   late final _height = TextEditingController(text: '${widget.defaults.height}');
@@ -75,7 +93,9 @@ class _NewDocumentDialogState extends State<NewDocumentDialog> {
       kMinCanvasHeight,
       kMaxCanvasHeight,
     ),
-    fitToWindow: _fitToWindow,
+    // Infinite ignores the size and the fit-to-window choice.
+    fitToWindow: _infinite ? false : _fitToWindow,
+    infinite: _infinite,
   );
 
   void _usePreset(CanvasPreset preset) => setState(() {
@@ -121,11 +141,24 @@ class _NewDocumentDialogState extends State<NewDocumentDialog> {
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               value: _fitToWindow,
-              onChanged: (value) =>
-                  setState(() => _fitToWindow = value ?? false),
+              // Fit-to-window has no meaning on an infinite canvas.
+              onChanged: _infinite
+                  ? null
+                  : (value) => setState(() => _fitToWindow = value ?? false),
               title: const Text('Fit canvas to window'),
               subtitle: const Text(
                 'The canvas follows the window, scaling what you have drawn.',
+              ),
+            ),
+            CheckboxListTile(
+              key: const Key('new-doc-infinite'),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              value: _infinite,
+              onChanged: (value) => setState(() => _infinite = value ?? false),
+              title: const Text('Infinite canvas'),
+              subtitle: const Text(
+                'No page edges — pan and zoom over an unbounded plane.',
               ),
             ),
           ],

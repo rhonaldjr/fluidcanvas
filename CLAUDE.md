@@ -73,11 +73,11 @@ test/                       # mirrors lib/ structure
 - All mutations to the document go through command objects in `domain/commands/` (enables undo/redo). Never mutate `SkdDocument` directly from UI code.
 - **There is no "the" document.** Everything scoped to one open document — the `SkdDocument`, its command stack, its selection, its viewport transform, its file path, its dirty flag — lives on a `DocumentSession`, keyed by session id. Resolve it from the active session; never introduce a global singleton for any of these. What *is* global: the active tool, brush settings, and recent colors, so switching tabs doesn't change the brush you're holding.
 - Coordinates in the document model are in **document space** (logical pixels at 100% zoom). The canvas widget owns the document↔screen transform. Hit-testing and transform math run in document space; only the selection overlay's handle *sizes* are in screen space.
-- **The canvas follows the window.** Resizing the window resizes the document and scales every element with it, uniformly, through a `ResizeCanvasCommand` — never by stretching, which would shear rotated shapes. Zoom is the opposite: a `ViewTransform` on the `DocumentSession` that never touches the document, is never a command, and never marks it dirty. A document opened from a `.skd` keeps its stored size instead.
+- **The canvas follows the window** — for a **bounded** document. Resizing the window resizes the document and scales every element with it, uniformly, through a `ResizeCanvasCommand` — never by stretching, which would shear rotated shapes. Zoom is the opposite: a `ViewTransform` on the `DocumentSession` that never touches the document, is never a command, and never marks it dirty. A document opened from a `.skd` keeps its stored size instead. An **infinite** document (`CanvasMode.infinite`) has no page: it ignores the stored size, never resizes to the window, drops the page border, and you pan/zoom over an unbounded plane. Infinite documents bypass the layer-image cache (which is a fixed `width × height`) and repaint their elements live through `InfiniteCanvasPainter`; export and thumbnails derive their bounds from the content, not a page.
 - `CanvasElement` is a sealed type. Adding a variant means updating the codec, the renderer, and hit-testing — the compiler will tell you where via exhaustive switches. Never add an element variant without a codec round-trip test.
 - Element order within `Layer.elements` is z-order, bottom to top. Do not infer z-order from anything else.
 
-## .skd File Format (v2)
+## .skd File Format (v3)
 
 A `.skd` file is a standard ZIP archive:
 
@@ -93,7 +93,7 @@ thumbnail.png               # 256px-max preview
 ```json
 {
   "format": "skd",
-  "formatVersion": 2,
+  "formatVersion": 3,
   "appVersion": "0.1.0",
   "createdUtc": "2026-07-09T12:00:00Z",
   "modifiedUtc": "2026-07-09T12:30:00Z"
@@ -103,7 +103,8 @@ thumbnail.png               # 256px-max preview
 ### document.json
 ```json
 {
-  "canvas": { "width": 1920, "height": 1080, "background": "#FFFFFF" },
+  "canvas": { "width": 1920, "height": 1080, "background": "#FFFFFF",
+              "mode": "infinite" },   // omitted when bounded (the default)
   "layers": [
     {
       "id": "uuid-v4",
@@ -116,7 +117,7 @@ thumbnail.png               # 256px-max preview
   ]
 }
 ```
-Layer order in the array = bottom to top.
+Layer order in the array = bottom to top. `canvas.mode` is `"infinite"` for an unbounded document and **omitted** for a bounded one, so older files and re-saved bounded documents are byte-for-byte unchanged; a missing or unknown value reads as bounded.
 
 ### Element binary format (`element_codec.dart`)
 Little-endian. All floats are IEEE 754 float32. Element order in the blob = z-order within the layer, bottom to top.
@@ -136,7 +137,8 @@ Per element:
 Stroke body (elementType 0):
   colorRGBA    u32
   baseWidth    f32
-  toolId       u8    (0 = pen, 1 = eraser)
+  toolId       u8    (0 = pen, 1 = eraser, 2 = pencil, 3 = airbrush, 4 = texture;
+                     unknown values render as the pen, never rejected)
   reserved     u8[3] (write zeros; readers must ignore)
   pointCount   u32
   points       pointCount × { x f32, y f32, pressure f32 }
@@ -165,16 +167,25 @@ Text body (elementType 2):
   fontSize     f32   (a maximum: the rendered size is fontSize * fitScale)
   colorRGBA    u32
   align        u8    (0 = left, 1 = center, 2 = right)
-  reserved     u8[3] (write zeros; readers must ignore)
+  listStyle    u8    (0 = none, 1 = bullet, 2 = numbered)   [v3]
+  textFlags    u8    (bit 0 = a path-binding index follows the runs)  [v3]
+  reserved     u8[1] (write zeros; readers must ignore)
   familyLen    u32
   family       familyLen × u8   (UTF-8; empty means the platform default)
   runCount     u32
   runs         runCount × {
-                 styleFlags u8    (bit 0 bold, bit 1 italic, bit 2 underline)
+                 styleFlags u8    (bit 0 bold, 1 italic, 2 underline,
+                                   3 has fontSize, 4 has colorRGBA)
                  reserved   u8[3] (write zeros; readers must ignore)
+                 [if bit 3] fontSize f32   [v3]
+                 [if bit 4] colorRGBA u32  [v3]
                  textLen    u32
                  text       textLen × u8   (UTF-8)
                }
+  [if textFlags bit 0] pathIndex u32   [v3] index of the sibling whose outline
+                 the glyphs flow along, like a connector end; 0xFFFFFFFF or an
+                 index that names nothing reads as unbound. Resolved in a second
+                 pass, so the text may sit below the element it binds to.
 ```
 
 Connector body (elementType 3):
@@ -202,7 +213,11 @@ The element's text is the concatenation of its runs, so styled ranges cannot
 overlap. Writers emit no empty runs and merge adjacent runs with equal styling;
 readers should tolerate a file that does neither. The rendered font size is
 `fontSize * fitScale`, and `fitScale` is recomputed on load — it is never
-stored, so it can never disagree with the text.
+stored, so it can never disagree with the text. A run may **override** the
+element's font size and colour (v3, marked by styleFlags bits 3 and 4); the
+bits are self-describing, so a v3 reader parses a v1/v2 run — whose bits are
+zero — with no extra fields, and a per-run size rides the shrink-to-fit scale
+like the element's own.
 
 A connector's `boundIndex` is an index into **its own container's** element list — the layer's elements, or the group's children — because element ids are not persisted and nothing in the format may reference one. Element order is z-order, which makes the index stable. A bound endpoint stores no coordinates: where it lands is *derived* from the element it points at, so a connector can never go stale. A binding that names nothing, names itself, or names another connector is read as a free end rather than rejected — a connector in the wrong place beats refusing to open the drawing.
 

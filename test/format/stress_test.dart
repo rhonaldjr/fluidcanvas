@@ -38,7 +38,13 @@ Stroke _stroke(Random random, String id) => Stroke(
   id: id,
   colorRGBA: _rgba(random),
   baseWidth: (random.nextInt(64) + 1).toDouble(),
-  toolId: random.nextBool() ? ToolId.pen : ToolId.eraser,
+  toolId: [
+    ToolId.pen,
+    ToolId.eraser,
+    ToolId.pencil,
+    ToolId.airbrush,
+    ToolId.texture,
+  ][random.nextInt(5)],
   points: [
     for (var i = 0; i < random.nextInt(kMaxPoints); i++)
       StrokePoint(
@@ -91,6 +97,12 @@ TextElement _textElement(Random random, String id) {
         bold: random.nextBool(),
         italic: random.nextBool(),
         underline: random.nextBool(),
+        // Per-run overrides, present only sometimes, so the codec sees runs
+        // both with and without the optional size/colour fields.
+        fontSize: random.nextBool()
+            ? (random.nextInt(72) + 4).toDouble()
+            : null,
+        colorRGBA: random.nextBool() ? _rgba(random) : null,
       ),
   ];
   return TextElement(
@@ -259,7 +271,14 @@ Object _describe(
     element.align,
     [
       for (final run in element.runs)
-        (run.text, run.bold, run.italic, run.underline),
+        (
+          run.text,
+          run.bold,
+          run.italic,
+          run.underline,
+          run.fontSize,
+          run.colorRGBA,
+        ),
     ],
   ],
   Connector() => [

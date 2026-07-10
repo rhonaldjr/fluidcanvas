@@ -19,6 +19,26 @@ enum TextAlignment {
   );
 }
 
+/// Whether a text box's lines carry list markers. [value] is the `u8` written
+/// into the first byte the v1 spec reserved in the text body, so a reader that
+/// has never heard of lists sees zero — [none] — and lays the text out plainly.
+enum ListStyle {
+  none(0),
+  bullet(1),
+  numbered(2);
+
+  const ListStyle(this.value);
+
+  final int value;
+
+  static ListStyle fromValue(int value) => values.firstWhere(
+    (s) => s.value == value,
+    // A future style read by this build falls back to plain text rather than
+    // refusing the file; unlike an unknown elementType, it costs nothing.
+    orElse: () => ListStyle.none,
+  );
+}
+
 /// A styled run of characters. A [TextElement]'s text is the concatenation of
 /// its runs, so styled ranges can never overlap.
 class TextRun {
@@ -27,14 +47,29 @@ class TextRun {
     this.bold = false,
     this.italic = false,
     this.underline = false,
-  });
+    this.fontSize,
+    this.colorRGBA,
+  }) : assert(
+         fontSize == null || fontSize > 0,
+         'a run fontSize override must be positive',
+       );
 
   /// Rebuilds a run from the `styleFlags` byte in the element blob.
-  factory TextRun.fromFlags(String text, int flags) => TextRun(
+  ///
+  /// Only the boolean flags come from the byte. Per-run [fontSize] and
+  /// [colorRGBA] are separate fields the codec reads when bits 3/4 are set.
+  factory TextRun.fromFlags(
+    String text,
+    int flags, {
+    double? fontSize,
+    int? colorRGBA,
+  }) => TextRun(
     text,
     bold: flags & 0x1 != 0,
     italic: flags & 0x2 != 0,
     underline: flags & 0x4 != 0,
+    fontSize: fontSize,
+    colorRGBA: colorRGBA,
   );
 
   final String text;
@@ -42,33 +77,73 @@ class TextRun {
   final bool italic;
   final bool underline;
 
-  /// The `styleFlags` byte: bit 0 bold, bit 1 italic, bit 2 underline.
-  int get styleFlags =>
-      (bold ? 0x1 : 0) | (italic ? 0x2 : 0) | (underline ? 0x4 : 0);
+  /// A size for this run alone, or null to inherit the element's font size.
+  final double? fontSize;
 
-  bool get isPlain => !bold && !italic && !underline;
+  /// A colour for this run alone, or null to inherit the element's colour.
+  final int? colorRGBA;
+
+  /// The `styleFlags` byte: bit 0 bold, 1 italic, 2 underline, 3 has a font
+  /// size, 4 has a colour. The bits mark *presence*; the sizes and colours
+  /// themselves are separate fields, so this byte alone never distinguishes
+  /// two runs of different size.
+  int get styleFlags =>
+      (bold ? 0x1 : 0) |
+      (italic ? 0x2 : 0) |
+      (underline ? 0x4 : 0) |
+      (fontSize != null ? 0x8 : 0) |
+      (colorRGBA != null ? 0x10 : 0);
+
+  bool get isPlain =>
+      !bold && !italic && !underline && fontSize == null && colorRGBA == null;
 
   /// Whether [other] carries the same styling, so the two can be merged.
-  bool sameStyleAs(TextRun other) => styleFlags == other.styleFlags;
+  ///
+  /// Compares the actual sizes and colours, not just the flag bits: two runs
+  /// that both override the size but to different values must never merge.
+  bool sameStyleAs(TextRun other) =>
+      bold == other.bold &&
+      italic == other.italic &&
+      underline == other.underline &&
+      fontSize == other.fontSize &&
+      colorRGBA == other.colorRGBA;
 
-  TextRun copyWith({String? text, bool? bold, bool? italic, bool? underline}) =>
-      TextRun(
-        text ?? this.text,
-        bold: bold ?? this.bold,
-        italic: italic ?? this.italic,
-        underline: underline ?? this.underline,
-      );
+  TextRun copyWith({
+    String? text,
+    bool? bold,
+    bool? italic,
+    bool? underline,
+    double? fontSize,
+    int? colorRGBA,
+    bool clearFontSize = false,
+    bool clearColor = false,
+  }) => TextRun(
+    text ?? this.text,
+    bold: bold ?? this.bold,
+    italic: italic ?? this.italic,
+    underline: underline ?? this.underline,
+    fontSize: clearFontSize ? null : (fontSize ?? this.fontSize),
+    colorRGBA: clearColor ? null : (colorRGBA ?? this.colorRGBA),
+  );
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is TextRun && text == other.text && styleFlags == other.styleFlags;
+      other is TextRun &&
+          text == other.text &&
+          bold == other.bold &&
+          italic == other.italic &&
+          underline == other.underline &&
+          fontSize == other.fontSize &&
+          colorRGBA == other.colorRGBA;
 
   @override
-  int get hashCode => Object.hash(text, styleFlags);
+  int get hashCode =>
+      Object.hash(text, bold, italic, underline, fontSize, colorRGBA);
 
   @override
-  String toString() => 'TextRun("$text", flags: $styleFlags)';
+  String toString() =>
+      'TextRun("$text", flags: $styleFlags, size: $fontSize, color: $colorRGBA)';
 }
 
 /// A text box with rich runs.
@@ -95,6 +170,8 @@ class TextElement extends CanvasElement {
     this.fontSize = 24,
     this.colorRGBA = 0x1B1B1FFF,
     this.align = TextAlignment.left,
+    this.listStyle = ListStyle.none,
+    this.pathElementId,
   }) : assert(w > 0 && h > 0, 'a text box must have a positive size'),
        assert(fontSize > 0, 'fontSize must be positive'),
        runs = normalizeRuns(runs);
@@ -146,6 +223,17 @@ class TextElement extends CanvasElement {
 
   final TextAlignment align;
 
+  /// Whether the box's lines are a bulleted or numbered list.
+  final ListStyle listStyle;
+
+  /// A sibling whose outline this text flows along, or null to wrap in its own
+  /// box. A runtime handle: ids are not persisted, so the codec stores the
+  /// sibling's **index**, resolved after the whole container is read — the same
+  /// way a [Connector] binds. Bound text ignores its own box for layout.
+  final String? pathElementId;
+
+  bool get isOnPath => pathElementId != null;
+
   /// Never empty: an empty element holds one empty run.
   final List<TextRun> runs;
 
@@ -180,17 +268,17 @@ class TextElement extends CanvasElement {
     return List.unmodifiable(merged);
   }
 
-  /// The runs with `[start, end)` restyled.
+  /// The runs with each run overlapping `[start, end)` passed through
+  /// [restyle], splitting a straddled run into up to three pieces.
   ///
-  /// A range inside one run splits it into up to three. Adjacent runs that end
-  /// up matching are merged again by [normalizeRuns].
-  List<TextRun> runsWithStyle(
+  /// The one place range styling splits runs. Adjacent runs that end up
+  /// matching are merged again by [normalizeRuns], which is what makes every
+  /// range operation reversible.
+  List<TextRun> restyleRange(
     int start,
-    int end, {
-    bool? bold,
-    bool? italic,
-    bool? underline,
-  }) {
+    int end,
+    TextRun Function(TextRun) restyle,
+  ) {
     if (end <= start) return runs;
     final out = <TextRun>[];
     var offset = 0;
@@ -209,20 +297,52 @@ class TextElement extends CanvasElement {
       final to = math.min(end, runEnd) - runStart;
 
       if (from > 0) out.add(run.copyWith(text: run.text.substring(0, from)));
-      out.add(
-        run.copyWith(
-          text: run.text.substring(from, to),
-          bold: bold ?? run.bold,
-          italic: italic ?? run.italic,
-          underline: underline ?? run.underline,
-        ),
-      );
+      out.add(restyle(run.copyWith(text: run.text.substring(from, to))));
       if (to < run.text.length) {
         out.add(run.copyWith(text: run.text.substring(to)));
       }
     }
     return normalizeRuns(out);
   }
+
+  /// The runs with `[start, end)` given the bold/italic/underline overrides.
+  List<TextRun> runsWithStyle(
+    int start,
+    int end, {
+    bool? bold,
+    bool? italic,
+    bool? underline,
+  }) => restyleRange(
+    start,
+    end,
+    (run) => run.copyWith(
+      bold: bold ?? run.bold,
+      italic: italic ?? run.italic,
+      underline: underline ?? run.underline,
+    ),
+  );
+
+  /// The runs with `[start, end)` set to [fontSize], or cleared to inherit the
+  /// element's size when [fontSize] is null.
+  List<TextRun> runsWithFontSize(int start, int end, double? fontSize) =>
+      restyleRange(
+        start,
+        end,
+        (run) => fontSize == null
+            ? run.copyWith(clearFontSize: true)
+            : run.copyWith(fontSize: fontSize),
+      );
+
+  /// The runs with `[start, end)` set to [colorRGBA], or cleared to inherit the
+  /// element's colour when [colorRGBA] is null.
+  List<TextRun> runsWithColor(int start, int end, int? colorRGBA) =>
+      restyleRange(
+        start,
+        end,
+        (run) => colorRGBA == null
+            ? run.copyWith(clearColor: true)
+            : run.copyWith(colorRGBA: colorRGBA),
+      );
 
   /// Whether every character in `[start, end)` already carries [flag].
   ///
@@ -335,6 +455,14 @@ class TextElement extends CanvasElement {
       w: w * factor,
       h: h * factor,
       fontSize: fontSize * factor,
+      // Per-run size overrides scale with the box too, or a corner-resize
+      // would grow the base font while leaving the overridden runs behind.
+      runs: [
+        for (final run in runs)
+          run.fontSize == null
+              ? run
+              : run.copyWith(fontSize: run.fontSize! * factor),
+      ],
     );
   }
 
@@ -372,6 +500,9 @@ class TextElement extends CanvasElement {
     double? fontSize,
     int? colorRGBA,
     TextAlignment? align,
+    ListStyle? listStyle,
+    String? pathElementId,
+    bool clearPath = false,
     List<TextRun>? runs,
   }) => TextElement(
     id: id ?? this.id,
@@ -384,6 +515,8 @@ class TextElement extends CanvasElement {
     fontSize: fontSize ?? this.fontSize,
     colorRGBA: colorRGBA ?? this.colorRGBA,
     align: align ?? this.align,
+    listStyle: listStyle ?? this.listStyle,
+    pathElementId: clearPath ? null : (pathElementId ?? this.pathElementId),
     runs: runs ?? this.runs,
   );
 
@@ -401,6 +534,8 @@ class TextElement extends CanvasElement {
           fontSize == other.fontSize &&
           colorRGBA == other.colorRGBA &&
           align == other.align &&
+          listStyle == other.listStyle &&
+          pathElementId == other.pathElementId &&
           _runsEqual(runs, other.runs);
 
   @override
@@ -415,6 +550,8 @@ class TextElement extends CanvasElement {
     fontSize,
     colorRGBA,
     align,
+    listStyle,
+    pathElementId,
     Object.hashAll(runs),
   );
 

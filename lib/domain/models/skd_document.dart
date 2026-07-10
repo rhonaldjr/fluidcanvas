@@ -6,7 +6,31 @@ import 'package:uuid/uuid.dart';
 /// Where an element lives: the [layer] holding it, and the [element] itself.
 typedef ElementLocation = ({Layer layer, CanvasElement element});
 
-/// A whole document: a fixed-size canvas and a bottom-to-top stack of layers.
+/// Whether a document has a bounded page or an unbounded infinite canvas.
+///
+/// [value] is written into `document.json`; never reassign the wire strings.
+enum CanvasMode {
+  bounded('bounded'),
+  infinite('infinite');
+
+  const CanvasMode(this.value);
+
+  final String value;
+
+  static CanvasMode fromValue(String? value) => values.firstWhere(
+    (m) => m.value == value,
+    // Every v1/v2 file, and any v3 file without the key, is bounded.
+    orElse: () => CanvasMode.bounded,
+  );
+}
+
+/// A whole document: a canvas and a bottom-to-top stack of layers.
+///
+/// The canvas is either **bounded** — a fixed page of [canvasWidth] × [canvas
+/// height] that follows the window and scales its elements on resize — or
+/// **infinite**, where the stored size is ignored, the page border is gone, and
+/// you pan and zoom over an unbounded plane. Every file older than v3 loads
+/// bounded.
 ///
 /// Immutable. Never mutate one from UI code — go through a command object so
 /// the change can be undone.
@@ -16,6 +40,7 @@ class SkdDocument {
     required this.canvasHeight,
     required List<Layer> layers,
     this.backgroundRGBA = 0xFFFFFFFF,
+    this.canvasMode = CanvasMode.bounded,
   }) : assert(canvasWidth > 0, 'canvasWidth must be positive'),
        assert(canvasHeight > 0, 'canvasHeight must be positive'),
        assert(layers.isNotEmpty, 'a document always has at least one layer'),
@@ -34,10 +59,12 @@ class SkdDocument {
     int backgroundRGBA = 0xFFFFFFFF,
     String? layerId,
     String layerName = 'Layer 1',
+    CanvasMode canvasMode = CanvasMode.bounded,
   }) => SkdDocument(
     canvasWidth: canvasWidth,
     canvasHeight: canvasHeight,
     backgroundRGBA: backgroundRGBA,
+    canvasMode: canvasMode,
     layers: [Layer(id: layerId ?? const Uuid().v4(), name: layerName)],
   );
 
@@ -49,6 +76,11 @@ class SkdDocument {
   /// byte survives only in memory, where PNG export uses it to decide whether
   /// to fill the background at all.
   final int backgroundRGBA;
+
+  /// Bounded or infinite. See [CanvasMode].
+  final CanvasMode canvasMode;
+
+  bool get isInfinite => canvasMode == CanvasMode.infinite;
 
   /// Bottom to top: `layers.last` paints over the rest. Never empty.
   /// Unmodifiable.
@@ -162,11 +194,13 @@ class SkdDocument {
     int? canvasWidth,
     int? canvasHeight,
     int? backgroundRGBA,
+    CanvasMode? canvasMode,
     List<Layer>? layers,
   }) => SkdDocument(
     canvasWidth: canvasWidth ?? this.canvasWidth,
     canvasHeight: canvasHeight ?? this.canvasHeight,
     backgroundRGBA: backgroundRGBA ?? this.backgroundRGBA,
+    canvasMode: canvasMode ?? this.canvasMode,
     layers: layers ?? this.layers,
   );
 
@@ -177,6 +211,7 @@ class SkdDocument {
           canvasWidth == other.canvasWidth &&
           canvasHeight == other.canvasHeight &&
           backgroundRGBA == other.backgroundRGBA &&
+          canvasMode == other.canvasMode &&
           _layersEqual(layers, other.layers);
 
   @override
@@ -184,6 +219,7 @@ class SkdDocument {
     canvasWidth,
     canvasHeight,
     backgroundRGBA,
+    canvasMode,
     Object.hashAll(layers),
   );
 

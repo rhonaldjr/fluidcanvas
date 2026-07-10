@@ -3,6 +3,7 @@ import 'dart:ui' show Offset, Rect;
 
 import 'package:inkpad/domain/models/models.dart';
 import 'package:inkpad/engine/shape_paths.dart';
+import 'package:inkpad/engine/text_on_path.dart';
 
 /// How close a click must land to count as hitting an outline, in document
 /// pixels, on top of half the element's own stroke width.
@@ -27,9 +28,12 @@ bool hitTestElement(
   // A rough shape is hit-tested on its parametric outline, not its wobble: you
   // select the rectangle you meant to draw, not the jitter you happened to get.
   Shape() => _hitShape(element, x, y, tolerance),
-  // A text box is grabbable anywhere inside it: clicking the gaps between
-  // glyphs must still select, and pick a caret position once editing.
-  TextElement() => _hitText(element, x, y, tolerance),
+  // A text box is grabbable anywhere inside it; path-bound text is grabbable
+  // along the outline its glyphs follow.
+  TextElement() =>
+    element.isOnPath
+        ? hitTextOnPath(element, x, y, tolerance, siblings)
+        : _hitText(element, x, y, tolerance),
   Connector() => _hitConnector(element, x, y, tolerance, siblings),
   // A group is whatever it holds. Hitting any descendant hits the group, so a
   // click selects the group and never one child out of it.

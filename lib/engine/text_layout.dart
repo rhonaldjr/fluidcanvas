@@ -35,6 +35,14 @@ class TextLayout {
   double get height => paragraph.height;
 }
 
+/// The marker prefixed to line [lineIndex] (0-based) for [style], or empty for
+/// [ListStyle.none]. Numbered lists count from 1.
+String listMarker(ListStyle style, int lineIndex) => switch (style) {
+  ListStyle.none => '',
+  ListStyle.bullet => '•  ',
+  ListStyle.numbered => '${lineIndex + 1}.  ',
+};
+
 /// Maps a [TextAlignment] onto Flutter's.
 TextAlign flutterAlign(TextAlignment align) => switch (align) {
   TextAlignment.left => TextAlign.left,
@@ -42,14 +50,26 @@ TextAlign flutterAlign(TextAlignment align) => switch (align) {
   TextAlignment.right => TextAlign.right,
 };
 
+/// Unpacks a 0xRRGGBBAA int into a Flutter [Color] (ARGB).
+Color _color(int rgba) => Color.fromARGB(
+  rgba & 0xFF,
+  (rgba >> 24) & 0xFF,
+  (rgba >> 16) & 0xFF,
+  (rgba >> 8) & 0xFF,
+);
+
 /// The style one run is drawn with, at [fontSize].
+///
+/// A run's own [TextRun.fontSize] and [TextRun.colorRGBA] override the
+/// element's when set. The size passed in has already been through the
+/// shrink-to-fit scale, so per-run sizes scale with the box like the rest.
 TextStyle runStyle(
   TextRun run, {
   required double fontSize,
   required String fontFamily,
   required Color color,
 }) => TextStyle(
-  color: color,
+  color: run.colorRGBA == null ? color : _color(run.colorRGBA!),
   fontFamily: fontFamily.isEmpty ? null : fontFamily,
   fontSize: fontSize,
   fontWeight: run.bold ? FontWeight.bold : FontWeight.normal,
@@ -74,18 +94,58 @@ ui.Paragraph buildParagraph(TextElement element, double fontSize) {
     ),
   );
 
-  for (final run in element.runs) {
+  // The scale the box has been shrunk by; a per-run size rides it too, so a
+  // 40pt run in a 24pt box stays proportionally larger as the box shrinks.
+  final scale = element.fontSize == 0 ? 1.0 : fontSize / element.fontSize;
+  final baseStyle = runStyle(
+    const TextRun(''),
+    fontSize: fontSize,
+    fontFamily: element.fontFamily,
+    color: color,
+  ).getTextStyle();
+
+  var lineIndex = 0;
+  var atLineStart = true;
+
+  void emitMarker() {
+    final marker = listMarker(element.listStyle, lineIndex);
+    if (marker.isEmpty) return;
     builder
-      ..pushStyle(
-        runStyle(
-          run,
-          fontSize: fontSize,
-          fontFamily: element.fontFamily,
-          color: color,
-        ).getTextStyle(),
-      )
-      ..addText(run.text)
+      ..pushStyle(baseStyle)
+      ..addText(marker)
       ..pop();
+  }
+
+  for (final run in element.runs) {
+    final runTextStyle = runStyle(
+      run,
+      fontSize: (run.fontSize ?? element.fontSize) * scale,
+      fontFamily: element.fontFamily,
+      color: color,
+    ).getTextStyle();
+
+    // Split on newlines so a list marker can be dropped in at each line start.
+    final parts = run.text.split('\n');
+    for (var j = 0; j < parts.length; j++) {
+      if (atLineStart) {
+        emitMarker();
+        atLineStart = false;
+      }
+      if (parts[j].isNotEmpty) {
+        builder
+          ..pushStyle(runTextStyle)
+          ..addText(parts[j])
+          ..pop();
+      }
+      if (j < parts.length - 1) {
+        builder
+          ..pushStyle(baseStyle)
+          ..addText('\n')
+          ..pop();
+        lineIndex++;
+        atLineStart = true;
+      }
+    }
   }
 
   return builder.build()..layout(ui.ParagraphConstraints(width: element.w));

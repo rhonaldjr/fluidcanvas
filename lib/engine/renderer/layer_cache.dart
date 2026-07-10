@@ -1,10 +1,13 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:inkpad/domain/models/models.dart';
+import 'package:inkpad/engine/renderer/brushes.dart';
 import 'package:inkpad/engine/rough.dart';
 import 'package:inkpad/engine/shape_paths.dart';
 import 'package:inkpad/engine/text_layout.dart';
+import 'package:inkpad/engine/text_on_path.dart';
 import 'package:inkpad/engine/renderer/variable_width.dart';
 
 /// Unpacks a 0xRRGGBBAA int, as stored on the models and in `.skd`, into a
@@ -24,19 +27,83 @@ Color colorFromRGBA(int rgba) => Color.fromARGB(
 void paintStroke(Canvas canvas, Stroke stroke) {
   if (stroke.points.isEmpty) return;
 
-  final paint = Paint()
-    ..style = PaintingStyle.fill
-    ..isAntiAlias = true;
-
-  if (stroke.isEraser) {
-    paint.blendMode = BlendMode.clear;
-  } else {
-    paint.color = colorFromRGBA(stroke.colorRGBA);
+  switch (stroke.toolId) {
+    case ToolId.eraser:
+      canvas.drawPath(
+        buildVariableWidthPath(stroke.points, stroke.baseWidth),
+        Paint()
+          ..style = PaintingStyle.fill
+          ..isAntiAlias = true
+          ..blendMode = BlendMode.clear,
+      );
+    case ToolId.pencil:
+      _paintPencil(canvas, stroke);
+    case ToolId.airbrush:
+      _paintAirbrush(canvas, stroke);
+    case ToolId.texture:
+      _paintTexture(canvas, stroke);
+    default:
+      // Pen, and any brush a newer file used that this build cannot render.
+      canvas.drawPath(
+        buildVariableWidthPath(stroke.points, stroke.baseWidth),
+        Paint()
+          ..style = PaintingStyle.fill
+          ..isAntiAlias = true
+          ..color = colorFromRGBA(stroke.colorRGBA),
+      );
   }
+}
 
+/// [rgba] with its alpha multiplied by [factor].
+Color _withAlpha(int rgba, double factor) {
+  final base = colorFromRGBA(rgba);
+  return base.withValues(alpha: base.a * factor);
+}
+
+/// A solid but slightly translucent fill, speckled with graphite grain.
+void _paintPencil(Canvas canvas, Stroke stroke) {
+  canvas
+    ..drawPath(
+      buildVariableWidthPath(stroke.points, stroke.baseWidth),
+      Paint()
+        ..style = PaintingStyle.fill
+        ..isAntiAlias = true
+        ..color = _withAlpha(stroke.colorRGBA, 0.82),
+    )
+    ..drawPath(
+      buildPencilGrain(stroke),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8
+        ..strokeCap = StrokeCap.round
+        ..isAntiAlias = true
+        ..color = _withAlpha(stroke.colorRGBA, 0.5),
+    );
+}
+
+/// A soft, low-opacity spray that builds up where it overlaps itself.
+void _paintAirbrush(Canvas canvas, Stroke stroke) {
   canvas.drawPath(
     buildVariableWidthPath(stroke.points, stroke.baseWidth),
-    paint,
+    Paint()
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true
+      ..color = _withAlpha(stroke.colorRGBA, 0.35)
+      ..maskFilter = MaskFilter.blur(
+        BlurStyle.normal,
+        math.max(1.0, stroke.baseWidth * 0.5),
+      ),
+  );
+}
+
+/// Broken dabs stamped along the centreline, for a dry, textured mark.
+void _paintTexture(Canvas canvas, Stroke stroke) {
+  canvas.drawPath(
+    buildTextureStamps(stroke),
+    Paint()
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true
+      ..color = _withAlpha(stroke.colorRGBA, 0.78),
   );
 }
 
@@ -97,8 +164,28 @@ void paintShape(Canvas canvas, Shape shape) {
 }
 
 /// Draws one text element, rotated about its own centre and shrunk to fit.
-void paintText(Canvas canvas, TextElement element) {
+///
+/// [siblings] is only needed when the text flows along a path — then its glyphs
+/// follow the bound element's outline instead of wrapping in its own box.
+void paintText(
+  Canvas canvas,
+  TextElement element, {
+  List<CanvasElement> siblings = const [],
+}) {
   if (element.isEmpty) return;
+
+  if (element.isOnPath) {
+    final id = element.pathElementId;
+    final target = siblings.where((e) => e.id == id).firstOrNull;
+    final path = target == null ? null : outlinePathFor(target, siblings);
+    if (path != null) {
+      paintTextOnPath(canvas, element, path);
+      return;
+    }
+    // The path is gone; fall through and draw the text in its own box, so it
+    // does not simply vanish.
+  }
+
   final layout = layoutText(element);
 
   canvas.save();
@@ -139,7 +226,7 @@ void paintElement(
     case Shape():
       paintShape(canvas, element);
     case TextElement():
-      paintText(canvas, element);
+      paintText(canvas, element, siblings: siblings);
     case Connector():
       paintConnector(canvas, element, siblings);
     case Group():

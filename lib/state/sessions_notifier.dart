@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/domain/commands/commands.dart';
+import 'package:inkpad/engine/text_on_path.dart';
 import 'package:inkpad/domain/models/models.dart';
 import 'package:inkpad/engine/view_transform.dart';
 import 'package:inkpad/state/document_session.dart';
@@ -619,6 +620,83 @@ class SessionsNotifier extends Notifier<SessionsState> {
         underline: underline,
       ),
     );
+  }
+
+  /// Sets (or clears, when null) the font size of a text range.
+  void styleTextRangeFontSize(
+    TextElement before,
+    int start,
+    int end,
+    double? fontSize,
+  ) {
+    if (end <= start) return;
+    run(
+      StyleTextRunsCommand(
+        before: before,
+        start: start,
+        end: end,
+        fontSize: fontSize,
+        setFontSize: true,
+      ),
+    );
+  }
+
+  /// Sets (or clears, when null) the colour of a text range.
+  void styleTextRangeColor(
+    TextElement before,
+    int start,
+    int end,
+    int? colorRGBA,
+  ) {
+    if (end <= start) return;
+    run(
+      StyleTextRunsCommand(
+        before: before,
+        start: start,
+        end: end,
+        colorRGBA: colorRGBA,
+        setColor: true,
+      ),
+    );
+  }
+
+  /// Sets the whole selected text element's list style.
+  void setTextListStyle(TextElement before, ListStyle style) {
+    if (before.listStyle == style) return;
+    run(StyleTextElementCommand(before: before, listStyle: style));
+  }
+
+  /// Flows the selected text along a selected sibling, or detaches it.
+  ///
+  /// Binds when the selection is one text element plus one element with a
+  /// resolvable outline (a shape, connector or stroke) on the same layer;
+  /// unbinds when the only text selected is already on a path. Anything else
+  /// does nothing.
+  void toggleTextOnPath() {
+    final session = state.activeSession;
+    final selected = session.selectedElements;
+    final texts = selected.whereType<TextElement>().toList();
+    if (texts.length != 1) return;
+    final text = texts.single;
+
+    if (text.isOnPath) {
+      run(BindTextToPathCommand(before: text, pathElementId: null));
+      return;
+    }
+
+    // The other selected element must have an outline and share the layer.
+    final layer = session.document.findElement(text.id)?.layer;
+    if (layer == null) return;
+    final targets = [
+      for (final element in selected)
+        if (element.id != text.id &&
+            layer.elements.any((e) => e.id == element.id) &&
+            outlinePathFor(element, layer.elements) != null)
+          element,
+    ];
+    if (targets.length != 1) return;
+
+    run(BindTextToPathCommand(before: text, pathElementId: targets.single.id));
   }
 
   /// Changes a text element's family, size, colour, or alignment.

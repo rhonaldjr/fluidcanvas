@@ -12,6 +12,9 @@ Map<String, dynamic> documentToJson(SkdDocument document) => {
     'width': document.canvasWidth,
     'height': document.canvasHeight,
     'background': rgbToHex(document.backgroundRGBA),
+    // Omitted for a bounded document, so v3 files that predate infinite mode
+    // and every re-saved older file stay byte-for-byte as they were.
+    if (document.isInfinite) 'mode': document.canvasMode.value,
   },
   'layers': [
     for (final layer in document.layers)
@@ -79,6 +82,8 @@ SkdDocument documentFromJson(
     canvasWidth: width,
     canvasHeight: height,
     backgroundRGBA: hexToRgb(canvas['background'] as String? ?? '#FFFFFF'),
+    // A missing key, an older file, or an unknown value all read as bounded.
+    canvasMode: CanvasMode.fromValue(canvas['mode'] as String?),
     layers: layers,
   );
 }
