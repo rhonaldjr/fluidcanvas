@@ -101,6 +101,51 @@ void main() {
       expect(elements(container).whereType<TextElement>(), isEmpty);
       expect(container.read(textEditingProvider), isNull);
     });
+
+    testWidgets('starting a second box commits the first, not clobbers it', (
+      tester,
+    ) async {
+      final container = await pumpShell(tester);
+      await placeBox(tester, container);
+      await tester.enterText(find.byKey(const Key('text-editor')), 'FIRST');
+      await tester.pump();
+
+      // Click far from the first box, text tool still active: this starts a
+      // second box. The first must be committed, not lost — the bug was that
+      // beginning the second edit clobbered the first before its blur landed.
+      final origin = tester.getRect(find.byKey(_pageKey)).topLeft;
+      await tester.tapAt(origin + const Offset(500, 500));
+      await tester.pumpAndSettle();
+
+      final texts = elements(container).whereType<TextElement>().toList();
+      expect(texts.map((t) => t.text), contains('FIRST'));
+      // The second (empty) box is now the one being edited.
+      expect(container.read(textEditingProvider), isNotNull);
+
+      // The second box takes its own text and commits independently.
+      await tester.enterText(find.byKey(const Key('text-editor')), 'SECOND');
+      await tester.pump();
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+
+      final finalTexts = elements(
+        container,
+      ).whereType<TextElement>().map((t) => t.text).toList();
+      expect(finalTexts, containsAll(<String>['FIRST', 'SECOND']));
+    });
+
+    testWidgets('switching tools commits the box being edited', (tester) async {
+      final container = await pumpShell(tester);
+      await placeBox(tester, container);
+      await tester.enterText(find.byKey(const Key('text-editor')), 'DONE');
+      await tester.pump();
+
+      container.read(toolProvider.notifier).select(Tool.pen);
+      await tester.pumpAndSettle();
+
+      expect(textOf(container)!.text, 'DONE');
+      expect(container.read(textEditingProvider), isNull);
+    });
   });
 
   group('10.5 editing', () {

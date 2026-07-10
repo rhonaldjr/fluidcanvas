@@ -484,6 +484,11 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
     // The navigation layer owns middle-drags and every drag while space is
     // held. Drawing with them would leave a stroke along the pan.
     if (event.buttons != kPrimaryButton || spacePanHeld()) return;
+    // A primary click that reaches the capture layer is a click *outside* any
+    // text box being edited (the editor's field, stacked above, swallows clicks
+    // within its box). So commit that edit now, before this interaction begins:
+    // otherwise starting a new box or drawing would clobber the pending text.
+    ref.read(sessionsProvider.notifier).flushTextEdit();
     _activePointer = event.pointer;
     final point = _pointFrom(event);
 

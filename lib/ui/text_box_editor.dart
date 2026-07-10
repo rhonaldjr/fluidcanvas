@@ -96,11 +96,33 @@ class _TextBoxEditorState extends ConsumerState<TextBoxEditor> {
   final FocusNode _focus = FocusNode();
   String? _editingId;
 
+  /// Bumped every time a *different* box takes over the editor. A focus loss
+  /// captures this; if it has moved by the time the deferred commit runs, the
+  /// blur was a box→box handover, not the user leaving. See [_onFocusChange].
+  int _editGeneration = 0;
+
   @override
   void dispose() {
     _controller?.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  /// Commits on a genuine focus loss, but not on a transient one.
+  ///
+  /// Starting a *second* text box swaps the field's controller, which drops
+  /// focus for an instant before the new box's post-frame `requestFocus`
+  /// restores it. Committing on that blink would delete the freshly-created
+  /// (still empty) box before a key is typed. So the commit is deferred to the
+  /// end of the frame and skipped if, by then, another box has taken over
+  /// (the generation moved) or focus has come back.
+  void _onFocusChange(bool hasFocus) {
+    if (hasFocus) return;
+    final generation = _editGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _focus.hasFocus || _editGeneration != generation) return;
+      _commit();
+    });
   }
 
   void _onChanged(String value) {
@@ -131,24 +153,20 @@ class _TextBoxEditorState extends ConsumerState<TextBoxEditor> {
   }
 
   /// Commits the session as one undo entry, and removes a box left empty.
-  void _commit() {
-    final editing = ref.read(textEditingProvider);
-    if (editing == null) return;
-    final sessions = ref.read(sessionsProvider.notifier);
-
-    if (editing.text.isEmpty) {
-      // A box you typed nothing into is a mis-click, not a document element.
-      sessions
-        ..setSelection({editing.elementId})
-        ..deleteSelection();
-    } else {
-      sessions.commitTextEdit(editing.original, editing.runs);
-    }
-    ref.read(textEditingProvider.notifier).end();
-  }
+  ///
+  /// Delegates to the notifier so the focus-loss path here and the
+  /// click-elsewhere path in the canvas share one commit implementation.
+  void _commit() => ref.read(sessionsProvider.notifier).flushTextEdit();
 
   @override
   Widget build(BuildContext context) {
+    // Switching tools while a box is open commits it — the same as clicking
+    // away. Without this the field simply keeps focus and the edit lingers
+    // uncommitted until something else flushes it.
+    ref.listen(toolProvider, (previous, next) {
+      if (previous != next) _commit();
+    });
+
     final editing = ref.watch(textEditingProvider);
     if (editing == null) {
       _editingId = null;
@@ -165,6 +183,7 @@ class _TextBoxEditorState extends ConsumerState<TextBoxEditor> {
 
     if (_editingId != editing.elementId) {
       _editingId = editing.elementId;
+      _editGeneration++;
       _controller?.dispose();
       _controller = _RunsController(element: element, runs: editing.runs)
         ..runs = editing.runs
@@ -189,9 +208,7 @@ class _TextBoxEditorState extends ConsumerState<TextBoxEditor> {
       child: Transform.rotate(
         angle: element.rotation,
         child: Focus(
-          onFocusChange: (has) {
-            if (!has) _commit();
-          },
+          onFocusChange: _onFocusChange,
           child: TextField(
             key: const Key('text-editor'),
             controller: _controller,

@@ -4,6 +4,7 @@ import 'package:inkpad/engine/text_on_path.dart';
 import 'package:inkpad/domain/models/models.dart';
 import 'package:inkpad/engine/view_transform.dart';
 import 'package:inkpad/state/document_session.dart';
+import 'package:inkpad/state/text_editing.dart';
 import 'package:uuid/uuid.dart';
 
 /// Every open document, plus which one is in front.
@@ -598,6 +599,29 @@ class SessionsNotifier extends Notifier<SessionsState> {
   void commitTextEdit(TextElement before, List<TextRun> after) {
     if (TextElement.normalizeRuns(after) == before.runs) return;
     run(EditTextCommand(before: before, after: after));
+  }
+
+  /// Writes the in-progress text edit into the document and ends the session.
+  ///
+  /// A box typed into becomes an [EditTextCommand]; a box left empty is a
+  /// mis-click and is removed. A no-op when nothing is being edited.
+  ///
+  /// This exists so any *new* interaction — clicking elsewhere on the canvas,
+  /// switching tools, starting another text box — can flush the pending edit
+  /// **synchronously, first**. Relying on the editor's focus-loss alone loses
+  /// the text: starting a second box replaces the editing session before the
+  /// first field's blur is delivered, so the blur then commits the wrong (new,
+  /// empty) box and the typed text is dropped.
+  void flushTextEdit() {
+    final editing = ref.read(textEditingProvider);
+    if (editing == null) return;
+    if (editing.text.isEmpty) {
+      setSelection({editing.elementId});
+      deleteSelection();
+    } else {
+      commitTextEdit(editing.original, editing.runs);
+    }
+    ref.read(textEditingProvider.notifier).end();
   }
 
   /// Applies bold/italic/underline to a range of a text element.
