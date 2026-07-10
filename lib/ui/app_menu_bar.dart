@@ -126,6 +126,16 @@ class SaveDocumentIntent extends Intent {
   final bool saveAs;
 }
 
+/// File → Export PNG. Ctrl/Cmd+E.
+class ExportIntent extends Intent {
+  const ExportIntent();
+}
+
+/// Quit the app, reviewing unsaved work first. Ctrl/Cmd+Q.
+class QuitIntent extends Intent {
+  const QuitIntent();
+}
+
 /// Move the selected element within its layer's z-order.
 class ReorderSelectionIntent extends Intent {
   const ReorderSelectionIntent({required this.forward, this.toEnd = false});
@@ -268,6 +278,10 @@ const Map<ShortcutActivator, Intent> kAppShortcuts = {
       SaveDocumentIntent(saveAs: true),
   SingleActivator(LogicalKeyboardKey.keyS, meta: true, shift: true):
       SaveDocumentIntent(saveAs: true),
+  SingleActivator(LogicalKeyboardKey.keyE, control: true): ExportIntent(),
+  SingleActivator(LogicalKeyboardKey.keyE, meta: true): ExportIntent(),
+  SingleActivator(LogicalKeyboardKey.keyQ, control: true): QuitIntent(),
+  SingleActivator(LogicalKeyboardKey.keyQ, meta: true): QuitIntent(),
 
   SingleActivator(LogicalKeyboardKey.bracketRight, control: true):
       ReorderSelectionIntent(forward: true),
@@ -353,8 +367,21 @@ class AppMenuBar extends ConsumerWidget {
                 ),
                 MenuItemButton(
                   key: const Key('menu-export'),
+                  shortcut: const SingleActivator(
+                    LogicalKeyboardKey.keyE,
+                    control: true,
+                  ),
                   onPressed: () => exportActiveSessionPng(context, ref),
                   child: const Text('Export PNG…'),
+                ),
+                MenuItemButton(
+                  key: const Key('menu-quit'),
+                  shortcut: const SingleActivator(
+                    LogicalKeyboardKey.keyQ,
+                    control: true,
+                  ),
+                  onPressed: () => attemptQuit(context, ref),
+                  child: const Text('Quit'),
                 ),
               ],
               child: const Text('File'),

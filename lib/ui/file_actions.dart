@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemNavigator;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/domain/models/models.dart';
 import 'package:inkpad/engine/export_png.dart';
@@ -241,6 +242,18 @@ Future<void> closeSessionInteractively(
   if (ref.read(sessionsProvider).sessionById(sessionId) == null) return;
   await ref.read(autosaveProvider).discard(session);
   notifier.closeSession(sessionId);
+}
+
+/// Reviews unsaved work and quits the app when the user allows it.
+///
+/// The window-close button (through `PopScope`), File → Quit, and Ctrl/Cmd+Q
+/// all route through here, so none can bypass the save prompt. Returns whether
+/// the quit went ahead — useful to a test, since `SystemNavigator.pop` has no
+/// host under `flutter_test` and is a no-op there.
+Future<bool> attemptQuit(BuildContext context, WidgetRef ref) async {
+  if (!await confirmQuit(context, ref)) return false;
+  await SystemNavigator.pop();
+  return true;
 }
 
 /// Offers to save every dirty session before the window closes.

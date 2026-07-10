@@ -38,6 +38,7 @@ const Map<String, List<ShortcutRow>> kShortcutReference = {
   ],
   'View': [
     (keys: 'Ctrl+scroll', action: 'Zoom about the cursor'),
+    (keys: 'Middle+scroll', action: 'Zoom about the cursor'),
     (keys: 'Ctrl+=  Ctrl+-', action: 'Zoom in / out'),
     (keys: 'Ctrl+0', action: 'Fit the page to the window'),
     (keys: 'Space+drag', action: 'Pan'),
@@ -48,6 +49,8 @@ const Map<String, List<ShortcutRow>> kShortcutReference = {
     (keys: 'Ctrl+O', action: 'Open'),
     (keys: 'Ctrl+S', action: 'Save'),
     (keys: 'Ctrl+Shift+S', action: 'Save As'),
+    (keys: 'Ctrl+E', action: 'Export PNG'),
+    (keys: 'Ctrl+Q', action: 'Quit'),
     (keys: 'Ctrl+T', action: 'New tab'),
     (keys: 'Ctrl+W', action: 'Close tab'),
     (keys: 'Ctrl+Tab', action: 'Next tab (Shift: previous)'),

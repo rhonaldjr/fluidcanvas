@@ -89,9 +89,7 @@ class _DesktopState extends ConsumerState<_Desktop> {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
-        if (await confirmQuit(context, ref)) {
-          await SystemNavigator.pop();
-        }
+        await attemptQuit(context, ref);
       },
       child: const AppShell(),
     );

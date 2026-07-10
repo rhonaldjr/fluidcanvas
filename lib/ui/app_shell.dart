@@ -109,6 +109,12 @@ class AppShell extends ConsumerWidget {
             onInvoke: (intent) =>
                 saveActiveSession(context, ref, saveAs: intent.saveAs),
           ),
+          ExportIntent: CallbackAction<ExportIntent>(
+            onInvoke: (_) => exportActiveSessionPng(context, ref),
+          ),
+          QuitIntent: CallbackAction<QuitIntent>(
+            onInvoke: (_) => attemptQuit(context, ref),
+          ),
         },
         child: Focus(
           autofocus: true,

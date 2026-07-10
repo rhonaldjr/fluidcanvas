@@ -1054,6 +1054,12 @@ class _NavigationLayerState extends ConsumerState<_NavigationLayer> {
   /// be applied as a ratio rather than an absolute.
   double _gestureScale = 1;
 
+  /// Whether the middle mouse button is currently down. A wheel turned while it
+  /// is held zooms about the cursor, a shortcut for the mouse that has no easy
+  /// Ctrl reach. The button still pans by *drag* (14.2); the two never collide
+  /// because a pan is a move and a zoom is a wheel signal.
+  bool _middleButtonHeld = false;
+
   @override
   void initState() {
     super.initState();
@@ -1100,8 +1106,15 @@ class _NavigationLayerState extends ConsumerState<_NavigationLayer> {
 
   void _onSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
-    if (HardwareKeyboard.instance.isControlPressed ||
-        HardwareKeyboard.instance.isMetaPressed) {
+    // Ctrl/Cmd+wheel, or a wheel turned with the middle button held, zooms
+    // about the cursor. `event.buttons` covers platforms that report the held
+    // button on the signal; `_middleButtonHeld` covers those that do not.
+    final zoom =
+        HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed ||
+        _middleButtonHeld ||
+        event.buttons == kMiddleMouseButton;
+    if (zoom) {
       _zoomBy(zoomFactorForScroll(event.scrollDelta.dy), event.localPosition);
       return;
     }
@@ -1114,6 +1127,7 @@ class _NavigationLayerState extends ConsumerState<_NavigationLayer> {
       event.buttons == kMiddleMouseButton || _spaceHeld;
 
   void _onPointerDown(PointerDownEvent event) {
+    if (event.buttons == kMiddleMouseButton) _middleButtonHeld = true;
     if (_panPointer != null || !_isPanPointer(event)) return;
     _panPointer = event.pointer;
     _panFrom = event.localPosition;
@@ -1130,6 +1144,9 @@ class _NavigationLayerState extends ConsumerState<_NavigationLayer> {
   }
 
   void _endPan(PointerEvent event) {
+    // Any pointer lifting ends the middle-button hold; the common flow is
+    // press-middle, wheel, release-middle.
+    _middleButtonHeld = false;
     if (event.pointer != _panPointer) return;
     _panPointer = null;
     _panFrom = null;
