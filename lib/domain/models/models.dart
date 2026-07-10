@@ -4,4 +4,6 @@
 // requires sealed subtypes to share a library.
 export 'bounds.dart';
 export 'canvas_element.dart';
+export 'layer.dart';
+export 'skd_document.dart';
 export 'stroke_point.dart';

@@ -1,8 +1,13 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:inkpad/ui/ui.dart';
+
+// CanvasView reads the active document, so the shell needs a ProviderScope.
+const _docWidth = 1920.0;
+const _docHeight = 1080.0;
 
 const _pageFinder = Key('canvas-page');
 
@@ -12,7 +17,9 @@ Future<void> _pumpShell(
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  await tester.pumpWidget(const MaterialApp(home: AppShell()));
+  await tester.pumpWidget(
+    const ProviderScope(child: MaterialApp(home: AppShell())),
+  );
 }
 
 void main() {
@@ -77,19 +84,16 @@ void main() {
     final viewport = tester.getSize(find.byType(CanvasView));
     final page = tester.getSize(find.byKey(_pageFinder));
 
-    expect(
-      page.width / page.height,
-      closeTo(kDefaultCanvasWidth / kDefaultCanvasHeight, 0.001),
-    );
+    expect(page.width / page.height, closeTo(_docWidth / _docHeight, 0.001));
     expect(page.width, lessThanOrEqualTo(viewport.width));
     expect(page.height, lessThanOrEqualTo(viewport.height));
 
     // The page is scaled to fit, so one axis is snug against the 32px margin.
     final expected = math.min(
-      (viewport.width - 64) / kDefaultCanvasWidth,
-      (viewport.height - 64) / kDefaultCanvasHeight,
+      (viewport.width - 64) / _docWidth,
+      (viewport.height - 64) / _docHeight,
     );
-    expect(page.width, closeTo(kDefaultCanvasWidth * expected, 0.5));
+    expect(page.width, closeTo(_docWidth * expected, 0.5));
   });
 
   testWidgets('page is centered in the canvas area', (tester) async {
@@ -106,16 +110,18 @@ void main() {
     await _pumpShell(tester, size: const Size(4000, 3000));
 
     final page = tester.getSize(find.byKey(_pageFinder));
-    expect(page.width, kDefaultCanvasWidth);
-    expect(page.height, kDefaultCanvasHeight);
+    expect(page.width, _docWidth);
+    expect(page.height, _docHeight);
   });
 
   testWidgets('page collapses rather than going negative when the viewport is '
       'smaller than the margins', (tester) async {
     await tester.pumpWidget(
-      const MaterialApp(
-        home: Center(
-          child: SizedBox(width: 50, height: 50, child: CanvasView()),
+      const ProviderScope(
+        child: MaterialApp(
+          home: Center(
+            child: SizedBox(width: 50, height: 50, child: CanvasView()),
+          ),
         ),
       ),
     );

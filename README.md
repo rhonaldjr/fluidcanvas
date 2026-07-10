@@ -6,7 +6,13 @@ A cross-platform desktop app for freehand sketching and light diagramming.
 
 Draw with a mouse or a pressure-sensitive stylus, drop in resizable shapes, organize everything into layers, and save to `.skd` — an open, documented file format.
 
-> **Status: pre-alpha.** The app skeleton is up — it opens a window and shows a blank page — and nothing else works yet. You cannot draw. There are no releases, and the file format is not yet implemented. Progress is tracked task by task in the [roadmap](Roadmap.md). Watch the repo if you want to know when it becomes usable.
+> **Status: pre-alpha. You cannot draw yet.**
+>
+> What exists: the app shell (window, menu bar, tool strip, blank page), Linux AppImage packaging with a tag-driven release workflow, and the immutable domain models — `CanvasElement`, `Stroke`, `Shape`, `Layer`.
+>
+> What doesn't: pointer input, rendering, undo, tabs, and the `.skd` file format. There are no releases yet.
+>
+> Progress is tracked task by task in the [roadmap](Roadmap.md). Watch the repo if you want to know when it becomes usable.
 
 ## What it will do
 
@@ -74,10 +80,21 @@ To build the AppImage locally, after `flutter build linux --release`:
 ./scripts/smoke_test_appimage.sh   # launches it under xvfb to prove it starts
 ```
 
-`flutter analyze` and `flutter test` must both pass before any change is considered done. Two rules the codebase enforces with tests:
+`flutter analyze` and `flutter test` must both pass before any change is considered done.
 
-- `lib/domain/` and `lib/format/` contain **no Flutter imports**, so they are unit-testable without a widget harness.
-- All document mutations go through command objects, never direct mutation from UI code. This is what makes undo/redo total.
+### Design notes
+
+A handful of decisions shape everything else. Most are enforced by the compiler or by tests.
+
+- **`lib/domain/` and `lib/format/` contain no Flutter imports**, so they are unit-testable without a widget harness. A test fails the build if you add one. This is why the domain has its own `Bounds` instead of using `ui.Rect`.
+- **`CanvasElement` is a sealed type** with exactly two variants, `Stroke` and `Shape`. Adding a third makes every non-exhaustive `switch` a compile error, which is how the codec, the renderer, and hit-testing stay in sync.
+- **Strokes and shapes are peers.** They share one ordered `List<CanvasElement>` per layer, bottom to top, so z-order between a freehand line and a rectangle needs no special case.
+- **Shapes are parametric.** Resizing changes `w`/`h`; it never resamples pixels. Mid-drag a shape may carry negative extents — `normalized()` folds the sign back into `x`/`y`.
+- **`bounds` is geometry, not ink.** It ignores stroke width, because a 40px stroke paints 20px beyond its points. Callers needing painted extent call `inflate(width / 2)`.
+- **Models are immutable.** Every mutator returns a copy, lists are unmodifiable, and equality is by value, compared deeply.
+- **All document mutations go through command objects**, never direct mutation from UI code. This is what makes undo/redo total.
+- **There is no "the" document.** Each open tab is a `DocumentSession` owning its own document, undo stack, selection, and zoom.
+- **Wire values are pinned.** The numbers behind `ShapeType` and `ToolId` are written into `.skd` files; reordering an enum would silently reinterpret every saved document. An unknown *shape* is rejected, while an unknown *blend mode* falls back to `normal` — a file from a future version must still open.
 
 Architecture, coding conventions, and the full `.skd` format specification live in [CLAUDE.md](CLAUDE.md).
 

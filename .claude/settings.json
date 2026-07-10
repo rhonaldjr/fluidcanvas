@@ -48,7 +48,8 @@
       "Bash(timeout 1800 docker run --rm -v /home/rhonaldjr-desktop/flutter:/flutter -v __TRACKED_VAR__:/repo -v /tmp/build_local.sh:/b.sh:ro ubuntu:22.04 bash /b.sh)",
       "Bash(grep -vE \"^debconf|Privacy|^$\")",
       "Bash(grep -vE \"^debconf|Privacy|^$|analytics|Google\")",
-      "Bash(echo \"DOCKER EXIT=$?\")"
+      "Bash(echo \"DOCKER EXIT=$?\")",
+      "Bash(grep -n 'abstract class Notifier\\\\|abstract class $Notifier\\\\b' -A6 /home/rhonaldjr-desktop/.pub-cache/hosted/pub.dev/riverpod-3.3.2/lib/src/providers/notifier.dart)"
     ]
   }
 }

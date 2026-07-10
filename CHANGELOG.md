@@ -16,6 +16,9 @@ reader must open it.
 - Flutter desktop project targeting Linux, macOS, and Windows.
 - Application shell: File/Edit menu bar, left tool strip, and a white
   1920×1080 page centered on a gray backdrop.
+- Immutable domain models: sealed `CanvasElement` with `Stroke` and `Shape`
+  variants, `StrokePoint`, `Bounds`, and `Layer`. Strokes and shapes share one
+  z-ordered list per layer.
 - Continuous integration on every push: formatting, static analysis, and tests.
 - Linux AppImage packaging, built and smoke-tested in CI on every push.
 - Tag-driven release workflow publishing the AppImage and a `SHA256SUMS` file.
