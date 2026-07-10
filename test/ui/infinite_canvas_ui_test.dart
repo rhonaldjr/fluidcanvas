@@ -112,4 +112,39 @@ void main() {
     final stroke = elements(container).single as Stroke;
     expect(stroke.points.first.x, lessThan(0));
   });
+
+  group('the infinite backdrop is the paper, not a gray desk', () {
+    Color backdrop(WidgetTester tester) {
+      final box = tester.widget<ColoredBox>(
+        find
+            .descendant(
+              of: find.byType(CanvasView),
+              matching: find.byType(ColoredBox),
+            )
+            .first,
+      );
+      return box.color;
+    }
+
+    testWidgets('an infinite canvas fills white (the document background)', (
+      tester,
+    ) async {
+      await pumpInfinite(tester);
+      expect(backdrop(tester), const Color(0xFFFFFFFF));
+    });
+
+    testWidgets('a bounded canvas keeps its gray desk', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final container = testContainer();
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AppShell()),
+        ),
+      );
+      await tester.pump();
+      expect(backdrop(tester), const Color(0xFF6E6E6E));
+    });
+  });
 }

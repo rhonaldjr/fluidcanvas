@@ -228,20 +228,49 @@ Future<void> closeSessionInteractively(
   final session = ref.read(sessionsProvider).sessionById(sessionId);
   if (session == null) return;
 
-  if (session.isDirty) {
-    notifier.setActiveSession(sessionId);
-    final choice = await promptSave(context, session.title);
-    if (choice == SavePrompt.cancel) return;
-    if (choice == SavePrompt.save) {
-      if (!context.mounted) return;
-      if (!await saveActiveSession(context, ref)) return;
-    }
-  }
+  if (!await resolveUnsavedBeforeClose(context, ref, session)) return;
 
   // The picker may have taken a while; the tab could be gone already.
   if (ref.read(sessionsProvider).sessionById(sessionId) == null) return;
   await ref.read(autosaveProvider).discard(session);
   notifier.closeSession(sessionId);
+}
+
+/// Deals with a session's unsaved changes before it is closed or the app quits.
+///
+/// Three cases, so the user is only ever interrupted when there is a real
+/// choice to make:
+///  * **Clean** — nothing to do; proceed.
+///  * **Saved before, now dirty** (has a `filePath`) — save it *silently*.
+///    Autosave has not caught up, but the file's home is known and overwriting
+///    it loses nothing, so there is nothing worth a dialog.
+///  * **Never saved** (untitled, with content) — prompt Save / Don't save /
+///    Cancel, because "save" needs a location and "close" would lose the work.
+///
+/// Returns whether the close/quit may proceed. A failed or cancelled save
+/// returns false, so the tab stays open rather than losing the drawing.
+Future<bool> resolveUnsavedBeforeClose(
+  BuildContext context,
+  WidgetRef ref,
+  DocumentSession session,
+) async {
+  if (!session.isDirty) return true;
+
+  // Bring it to the front, so a prompt (or an error from a silent save) names
+  // a document the user can see.
+  ref.read(sessionsProvider.notifier).setActiveSession(session.id);
+
+  if (!session.isUntitled) {
+    if (!context.mounted) return false;
+    return saveActiveSession(context, ref);
+  }
+
+  if (!context.mounted) return false;
+  final choice = await promptSave(context, session.title);
+  if (choice == SavePrompt.cancel) return false;
+  if (choice == SavePrompt.discard) return true;
+  if (!context.mounted) return false;
+  return saveActiveSession(context, ref);
 }
 
 /// Reviews unsaved work and quits the app when the user allows it.
@@ -262,7 +291,6 @@ Future<bool> attemptQuit(BuildContext context, WidgetRef ref) async {
 /// its own — a single "discard everything" button would be one misclick away
 /// from losing an afternoon's work in three tabs at once.
 Future<bool> confirmQuit(BuildContext context, WidgetRef ref) async {
-  final notifier = ref.read(sessionsProvider.notifier);
   final dirty = [
     for (final session in ref.read(sessionsProvider).sessions)
       if (session.isDirty) session.id,
@@ -271,15 +299,8 @@ Future<bool> confirmQuit(BuildContext context, WidgetRef ref) async {
   for (final id in dirty) {
     final session = ref.read(sessionsProvider).sessionById(id);
     if (session == null || !session.isDirty) continue;
-
-    notifier.setActiveSession(id);
     if (!context.mounted) return false;
-    final choice = await promptSave(context, session.title);
-    if (choice == SavePrompt.cancel) return false;
-    if (choice == SavePrompt.save) {
-      if (!context.mounted) return false;
-      if (!await saveActiveSession(context, ref)) return false;
-    }
+    if (!await resolveUnsavedBeforeClose(context, ref, session)) return false;
   }
   return true;
 }

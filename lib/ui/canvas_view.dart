@@ -10,6 +10,7 @@ import 'package:inkpad/domain/commands/commands.dart'
 import 'package:inkpad/engine/debouncer.dart';
 import 'package:inkpad/engine/pointer_input.dart';
 import 'package:inkpad/engine/renderer/infinite_painter.dart';
+import 'package:inkpad/engine/renderer/layer_cache.dart' show colorFromRGBA;
 import 'package:inkpad/engine/renderer/layer_stack_painter.dart';
 import 'package:inkpad/engine/hit_test.dart';
 import 'package:inkpad/engine/shape_drag.dart';
@@ -169,7 +170,12 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
     final above = document.layers.sublist(activeIndex + 1);
 
     return ColoredBox(
-      color: const Color(0xFF6E6E6E),
+      // A bounded document floats a white page on a gray desk. An infinite one
+      // has no page, so the whole plane *is* the paper — the document's own
+      // background, white by default.
+      color: document.isInfinite
+          ? colorFromRGBA(document.backgroundRGBA)
+          : const Color(0xFF6E6E6E),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final isInfinite = document.isInfinite;
@@ -947,7 +953,9 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
 
     final box = shape.normalized();
     // A click with a shape tool, or a drag of a few pixels, is a mis-click.
-    if (box.w < 1 && box.h < 1) return;
+    // Magnitude, not sign: a directional shape keeps a negative extent when it
+    // is drawn up or left, and that is a real drag, not a mis-click.
+    if (box.w.abs() < 1 && box.h.abs() < 1) return;
 
     ref
         .read(sessionsProvider.notifier)

@@ -142,10 +142,21 @@ class Shape extends CanvasElement {
   double get centerX => x + w / 2;
   double get centerY => y + h / 2;
 
+  /// Whether this shape's extents carry a *direction* worth keeping.
+  ///
+  /// A line runs from `(x, y)` to `(x + w, y + h)` and an arrow points at that
+  /// far end, so folding a negative extent — which is what [normalized] does —
+  /// would silently reverse them: an arrow dragged leftwards would keep
+  /// pointing right. A rectangle, ellipse or diamond is a symmetric box, so its
+  /// sign means nothing and normalizing is correct.
+  bool get isDirectional => type == ShapeType.line || type == ShapeType.arrow;
+
   /// An equivalent shape with non-negative [w] and [h], the sign folded into
   /// [x] and [y]. The center, and therefore the rotation, is unchanged.
+  ///
+  /// A no-op for a [isDirectional] shape: its sign is its direction.
   Shape normalized() {
-    if (w >= 0 && h >= 0) return this;
+    if (isDirectional || (w >= 0 && h >= 0)) return this;
     return copyWith(
       x: w < 0 ? x + w : x,
       y: h < 0 ? y + h : y,
@@ -164,11 +175,13 @@ class Shape extends CanvasElement {
     final rect = normalized();
 
     if (!isRotated) {
+      // min/max, not left/right: a directional shape keeps a negative extent,
+      // so its far corner may sit above or left of `(x, y)`.
       return Bounds(
-        left: rect.x,
-        top: rect.y,
-        right: rect.x + rect.w,
-        bottom: rect.y + rect.h,
+        left: math.min(rect.x, rect.x + rect.w),
+        top: math.min(rect.y, rect.y + rect.h),
+        right: math.max(rect.x, rect.x + rect.w),
+        bottom: math.max(rect.y, rect.y + rect.h),
       );
     }
 
