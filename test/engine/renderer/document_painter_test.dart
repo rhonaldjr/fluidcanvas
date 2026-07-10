@@ -1,3 +1,4 @@
+import 'dart:ui' as ui show Image;
 import 'dart:ui' show PictureRecorder;
 
 import 'package:flutter/material.dart';
@@ -136,6 +137,40 @@ void main() {
       );
     });
 
+    // A layer holding elements always opens an offscreen buffer, even when
+    // nothing in it paints — the eraser needs somewhere bounded to clear. So
+    // "paints nothing" is measured against that overhead, not against an
+    // empty document.
+    int overheadBytes() => recordedBytes(
+      DocumentPainter(
+        document: docWith([
+          Layer(
+            id: 'a',
+            name: 'a',
+            elements: [Stroke(id: 'e', colorRGBA: 0, baseWidth: 1)],
+          ),
+        ]),
+        scale: 1,
+      ),
+    );
+
+    test('an empty stroke is skipped', () {
+      expect(overheadBytes(), greaterThan(emptyBytes)); // the saveLayer
+      expect(
+        overheadBytes(),
+        lessThan(
+          recordedBytes(
+            DocumentPainter(
+              document: docWith([
+                Layer(id: 'a', name: 'a', elements: [strokeLine('s')]),
+              ]),
+              scale: 1,
+            ),
+          ),
+        ),
+      );
+    });
+
     test('shapes are skipped until task 8.2, without crashing', () {
       final withShape = docWith([
         Layer(id: 'a', name: 'a', elements: [rect('r')]),
@@ -144,24 +179,10 @@ void main() {
         () => recordedBytes(DocumentPainter(document: withShape, scale: 1)),
         returnsNormally,
       );
+      // Costs the same as a layer whose only element paints nothing.
       expect(
         recordedBytes(DocumentPainter(document: withShape, scale: 1)),
-        emptyBytes,
-      );
-    });
-
-    test('an empty stroke is skipped', () {
-      final empty = Stroke(id: 'e', colorRGBA: 0, baseWidth: 1);
-      expect(
-        recordedBytes(
-          DocumentPainter(
-            document: docWith([
-              Layer(id: 'a', name: 'a', elements: [empty]),
-            ]),
-            scale: 1,
-          ),
-        ),
-        emptyBytes,
+        overheadBytes(),
       );
     });
 
@@ -212,6 +233,146 @@ void main() {
           document: document,
           scale: 0.5,
         ).shouldRepaint(DocumentPainter(document: document, scale: 1)),
+        isTrue,
+      );
+    });
+  });
+
+  group('eraser', () {
+    Stroke eraserAcross(String id) => Stroke(
+      id: id,
+      colorRGBA: 0,
+      baseWidth: 30,
+      toolId: ToolId.eraser,
+      points: const [StrokePoint(x: 0, y: 100), StrokePoint(x: 200, y: 100)],
+    );
+
+    Stroke inkAcross(String id) => Stroke(
+      id: id,
+      colorRGBA: 0x000000FF,
+      baseWidth: 30,
+      points: const [StrokePoint(x: 0, y: 100), StrokePoint(x: 200, y: 100)],
+    );
+
+    /// Renders the document and returns the pixel at (x, y) as ARGB.
+    Future<int> pixelAt(SkdDocument document, int x, int y) async {
+      final recorder = PictureRecorder();
+      DocumentPainter(
+        document: document,
+        scale: 1,
+      ).paint(Canvas(recorder), const Size(200, 200));
+      final ui.Image image = await recorder.endRecording().toImage(200, 200);
+      final data = (await image.toByteData())!;
+      final offset = (y * 200 + x) * 4;
+      final r = data.getUint8(offset);
+      final g = data.getUint8(offset + 1);
+      final b = data.getUint8(offset + 2);
+      final a = data.getUint8(offset + 3);
+      return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    int alphaOf(int argb) => (argb >> 24) & 0xFF;
+
+    test('ink paints opaque pixels', () async {
+      final doc = docWith([
+        Layer(id: 'a', name: 'a', elements: [inkAcross('s')]),
+      ]);
+      expect(alphaOf(await pixelAt(doc, 100, 100)), 255);
+    });
+
+    test('an eraser in the same layer removes the ink beneath it', () async {
+      final doc = docWith([
+        Layer(
+          id: 'a',
+          name: 'a',
+          elements: [inkAcross('s'), eraserAcross('e')],
+        ),
+      ]);
+      expect(alphaOf(await pixelAt(doc, 100, 100)), 0);
+    });
+
+    test('an eraser in another layer leaves that layer alone', () async {
+      // This is what the per-layer saveLayer buys: clear must not punch
+      // through the layers beneath.
+      final doc = docWith([
+        Layer(id: 'ink', name: 'ink', elements: [inkAcross('s')]),
+        Layer(id: 'rub', name: 'rub', elements: [eraserAcross('e')]),
+      ]);
+      expect(alphaOf(await pixelAt(doc, 100, 100)), 255);
+    });
+
+    test('an eraser only clears where it is drawn', () async {
+      final doc = docWith([
+        Layer(
+          id: 'a',
+          name: 'a',
+          elements: [inkAcross('s'), eraserAcross('e')],
+        ),
+      ]);
+      // Far from the eraser line, the ink survives... there is none here.
+      expect(alphaOf(await pixelAt(doc, 100, 20)), 0);
+    });
+
+    test('a live eraser stroke erases inside its own layer', () async {
+      final doc = docWith([
+        Layer(id: 'ink', name: 'ink', elements: [inkAcross('s')]),
+      ]);
+      final recorder = PictureRecorder();
+      DocumentPainter(
+        document: doc,
+        scale: 1,
+        liveStroke: eraserAcross('live'),
+        liveLayerId: 'ink',
+      ).paint(Canvas(recorder), const Size(200, 200));
+      final image = await recorder.endRecording().toImage(200, 200);
+      final data = (await image.toByteData())!;
+      expect(data.getUint8((100 * 200 + 100) * 4 + 3), 0);
+    });
+
+    test(
+      'a live eraser aimed at another layer does not touch the ink',
+      () async {
+        final doc = docWith([
+          Layer(id: 'ink', name: 'ink', elements: [inkAcross('s')]),
+          Layer(id: 'rub', name: 'rub'),
+        ]);
+        final recorder = PictureRecorder();
+        DocumentPainter(
+          document: doc,
+          scale: 1,
+          liveStroke: eraserAcross('live'),
+          liveLayerId: 'rub',
+        ).paint(Canvas(recorder), const Size(200, 200));
+        final image = await recorder.endRecording().toImage(200, 200);
+        final data = (await image.toByteData())!;
+        expect(data.getUint8((100 * 200 + 100) * 4 + 3), 255);
+      },
+    );
+
+    test('a live stroke draws into an otherwise empty layer', () async {
+      final doc = docWith([Layer(id: 'a', name: 'a')]);
+      final recorder = PictureRecorder();
+      DocumentPainter(
+        document: doc,
+        scale: 1,
+        liveStroke: inkAcross('live'),
+        liveLayerId: 'a',
+      ).paint(Canvas(recorder), const Size(200, 200));
+      final image = await recorder.endRecording().toImage(200, 200);
+      final data = (await image.toByteData())!;
+      expect(data.getUint8((100 * 200 + 100) * 4 + 3), 255);
+    });
+
+    test('shouldRepaint reacts to a new live stroke', () {
+      final doc = docWith([Layer(id: 'a', name: 'a')]);
+      final base = DocumentPainter(document: doc, scale: 1);
+      expect(
+        DocumentPainter(
+          document: doc,
+          scale: 1,
+          liveStroke: inkAcross('live'),
+          liveLayerId: 'a',
+        ).shouldRepaint(base),
         isTrue,
       );
     });

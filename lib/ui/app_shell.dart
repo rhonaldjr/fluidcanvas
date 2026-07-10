@@ -17,6 +17,9 @@ class AppShell extends StatelessWidget {
           AppMenuBar(),
           Expanded(
             child: Row(
+              // Without stretch the strip shrink-wraps its content and floats
+              // vertically centred, leaving the scaffold showing above it.
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 ToolbarStrip(),
                 Expanded(child: CanvasView()),

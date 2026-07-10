@@ -45,11 +45,11 @@ This phase runs early on purpose: the release pipeline is easier to get right ag
 
 ## Phase 4 — Brush Feel
 
-- [ ] **4.1 Pressure → width.** Render each stroke as a filled variable-width path: width = `baseWidth * lerp(minFactor, 1.0, pressure)`. Unit test the width function; visual check for the path.
-- [ ] **4.2 Brush settings state.** `Brush {colorRGBA, baseWidth}` provider; new strokes read from it. Simple toolbar controls: width slider (1–64) and 8 hardcoded color swatches.
-- [ ] **4.3 Color picker dialog.** Tapping a "custom color" swatch opens an HSV picker dialog; picked color becomes the brush color and is added to a recent-colors row (max 8, most recent first). The same picker is reused for shape stroke/fill in 8.7.
-- [ ] **4.4 Eraser tool.** Tool enum gains `{pen, eraser}` + toolbar toggle. Eraser strokes have `toolId=1` and render with `BlendMode.clear` within their layer. Rendering per layer must use `saveLayer` so erasing only affects that layer. Note: the eraser clears the layer's raster, so it erases shapes in that layer too — it is not a shape-delete.
-- [ ] **4.5 Stroke stabilization option.** Optional pull-string/averaging stabilizer with strength 0–10, off by default, selectable in toolbar. Unit tests on the stabilizer function.
+- [x] **4.1 Pressure → width.** Render each stroke as a filled variable-width path: width = `baseWidth * lerp(minFactor, 1.0, pressure)`. Unit test the width function; visual check for the path.
+- [x] **4.2 Brush settings state.** `Brush {colorRGBA, baseWidth}` provider; new strokes read from it. Simple toolbar controls: width slider (1–64) and 8 hardcoded color swatches.
+- [x] **4.3 Color picker dialog.** Tapping a "custom color" swatch opens an HSV picker dialog; picked color becomes the brush color and is added to a recent-colors row (max 8, most recent first). The same picker is reused for shape stroke/fill in 8.7.
+- [x] **4.4 Eraser tool.** Tool enum gains `{pen, eraser}` + toolbar toggle. Eraser strokes have `toolId=1` and render with `BlendMode.clear` within their layer. Rendering per layer must use `saveLayer` so erasing only affects that layer. Note: the eraser clears the layer's raster, so it erases shapes in that layer too — it is not a shape-delete.
+- [x] **4.5 Stroke stabilization option.** Optional pull-string stabilizer with strength 0–10, off by default, selectable in toolbar. The pen drags an anchor on a taut string; movement inside the radius is slack, which is what kills tremor. Runs before smoothing: it decides *which* points exist, the smoother interpolates between them. Unit tests on the stabilizer function.
 
 ## Phase 5 — Performance Pass
 

@@ -63,16 +63,30 @@ void main() {
     }
   });
 
-  testWidgets('left toolbar strip is present and empty', (tester) async {
+  testWidgets('the toolbar strip spans the full height below the menu bar', (
+    tester,
+  ) async {
+    await _pumpShell(tester);
+
+    final strip = tester.getRect(find.byKey(const Key('toolbar-strip')));
+    final canvas = tester.getRect(find.byType(CanvasView));
+    expect(strip.top, closeTo(canvas.top, 0.5));
+    expect(strip.bottom, closeTo(canvas.bottom, 0.5));
+  });
+
+  testWidgets('left toolbar strip holds the brush controls', (tester) async {
     await _pumpShell(tester);
 
     final strip = find.byKey(const Key('toolbar-strip'));
     expect(strip, findsOneWidget);
     expect(tester.getSize(strip).width, kToolbarStripWidth);
     expect(
-      find.descendant(of: strip, matching: find.byType(Widget)),
-      findsNothing,
-      reason: 'the strip holds no tools yet',
+      find.descendant(of: strip, matching: find.byType(BrushWidthControl)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: strip, matching: find.byType(ColorSwatches)),
+      findsOneWidget,
     );
   });
 

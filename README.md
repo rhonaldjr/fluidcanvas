@@ -6,11 +6,11 @@ A cross-platform desktop app for freehand sketching and light diagramming.
 
 Draw with a mouse or a pressure-sensitive stylus, drop in resizable shapes, organize everything into layers, and save to `.skd` — an open, documented file format.
 
-> **Status: pre-alpha. You cannot draw yet.**
+> **Status: pre-alpha. Nothing you draw can be saved.**
 >
-> What exists: the app shell (window, menu bar, tool strip, blank page), Linux AppImage packaging with a tag-driven release workflow, and the immutable domain models — `CanvasElement`, `Stroke`, `Shape`, `Layer`.
+> What exists: freehand drawing with pressure-sensitive width, smoothing, an optional stabilizer, a pen/eraser toggle, and a brush toolbar with a colour picker. Plus the app shell, the domain models, and Linux AppImage packaging with a tag-driven release workflow.
 >
-> What doesn't: pointer input, rendering, undo, tabs, and the `.skd` file format. There are no releases yet.
+> What doesn't: shapes, layers UI, undo, tabs, and the `.skd` file format — so closing the window loses your work. There are no releases yet.
 >
 > Progress is tracked task by task in the [roadmap](Roadmap.md). Watch the repo if you want to know when it becomes usable.
 

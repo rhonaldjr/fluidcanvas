@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:inkpad/domain/models/models.dart';
-import 'package:inkpad/engine/renderer/stroke_painter.dart';
+import 'package:inkpad/engine/renderer/variable_width.dart';
 
 /// Unpacks a 0xRRGGBBAA int, as stored on the models and in `.skd`, into a
 /// Flutter [Color], which is ARGB.
@@ -11,17 +11,35 @@ Color colorFromRGBA(int rgba) => Color.fromARGB(
   (rgba >> 8) & 0xFF,
 );
 
-/// Paints every committed element of a document, bottom layer first.
+/// Paints every committed element of a document, bottom layer first, plus the
+/// stroke currently under the pointer.
 ///
-/// Naive: it repaints the whole document on every change. Task 5.1 replaces
-/// this with per-layer cached images, leaving only the in-progress stroke live.
+/// The live stroke is painted *inside* its layer rather than on top of
+/// everything. That is what makes the eraser correct: `BlendMode.clear` must
+/// only reach the layer it is drawn into, and a stroke painted over the whole
+/// document would punch through every layer beneath.
+///
+/// Naive: it repaints the whole document on every pointer event. Task 5.1
+/// replaces this with per-layer cached images, leaving only the active layer
+/// live.
 class DocumentPainter extends CustomPainter {
-  const DocumentPainter({required this.document, required this.scale});
+  const DocumentPainter({
+    required this.document,
+    required this.scale,
+    this.liveStroke,
+    this.liveLayerId,
+  });
 
   final SkdDocument document;
 
   /// Page screen size divided by document size.
   final double scale;
+
+  /// The stroke being drawn right now, or `null` between strokes.
+  final Stroke? liveStroke;
+
+  /// Which layer [liveStroke] belongs to. Ignored when there is no live stroke.
+  final String? liveLayerId;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -31,23 +49,23 @@ class DocumentPainter extends CustomPainter {
     canvas.scale(scale);
 
     for (final layer in document.layers) {
-      if (!layer.contributesPixels) continue;
-      _paintLayer(canvas, layer);
+      final live = layer.id == liveLayerId ? liveStroke : null;
+      if (!layer.visible || layer.opacity == 0) continue;
+      if (layer.elements.isEmpty && live == null) continue;
+      _paintLayer(canvas, layer, live);
     }
 
     canvas.restore();
   }
 
-  void _paintLayer(Canvas canvas, Layer layer) {
-    final translucent = layer.opacity < 1.0;
-    if (translucent) {
-      // Compositing the layer as a whole, rather than fading each element,
-      // keeps overlapping strokes within it from showing through each other.
-      canvas.saveLayer(
-        null,
-        Paint()..color = Color.fromARGB((layer.opacity * 255).round(), 0, 0, 0),
-      );
-    }
+  void _paintLayer(Canvas canvas, Layer layer, Stroke? live) {
+    // Always an offscreen layer, not only when translucent: BlendMode.clear
+    // needs somewhere bounded to erase, and compositing the layer as a whole
+    // stops its overlapping strokes showing through each other.
+    canvas.saveLayer(
+      null,
+      Paint()..color = Color.fromARGB((layer.opacity * 255).round(), 0, 0, 0),
+    );
 
     for (final element in layer.elements) {
       switch (element) {
@@ -60,34 +78,37 @@ class DocumentPainter extends CustomPainter {
       }
     }
 
-    if (translucent) canvas.restore();
+    if (live != null) _paintStroke(canvas, live);
+
+    canvas.restore();
   }
 
   void _paintStroke(Canvas canvas, Stroke stroke) {
     if (stroke.points.isEmpty) return;
 
     final paint = Paint()
-      ..color = colorFromRGBA(stroke.colorRGBA)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke.baseWidth
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.fill
       ..isAntiAlias = true;
 
-    if (stroke.points.length == 1) {
-      final point = stroke.points.first;
-      canvas.drawCircle(
-        Offset(point.x, point.y),
-        stroke.baseWidth / 2,
-        paint..style = PaintingStyle.fill,
-      );
+    if (stroke.isEraser) {
+      // Clears within this layer's offscreen buffer only. The colour is
+      // irrelevant; clear ignores it.
+      paint.blendMode = BlendMode.clear;
     } else {
-      canvas.drawPath(buildPolylinePath(stroke.points), paint);
+      paint.color = colorFromRGBA(stroke.colorRGBA);
     }
+
+    canvas.drawPath(
+      buildVariableWidthPath(stroke.points, stroke.baseWidth),
+      paint,
+    );
   }
 
   @override
   bool shouldRepaint(DocumentPainter old) =>
-      // Documents are immutable, so a change means a new instance.
-      !identical(old.document, document) || old.scale != scale;
+      // Documents and strokes are immutable, so a change means a new instance.
+      !identical(old.document, document) ||
+      !identical(old.liveStroke, liveStroke) ||
+      old.liveLayerId != liveLayerId ||
+      old.scale != scale;
 }

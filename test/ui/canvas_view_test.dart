@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:inkpad/domain/models/models.dart';
-import 'package:inkpad/engine/renderer/stroke_painter.dart';
+import 'package:inkpad/engine/renderer/document_painter.dart';
 import 'package:inkpad/engine/smoothing.dart';
 import 'package:inkpad/state/state.dart';
 import 'package:inkpad/ui/ui.dart';
@@ -32,15 +32,21 @@ SkdDocument documentOf(ProviderContainer c) => c.read(activeDocumentProvider);
 Layer activeLayerOf(ProviderContainer c) =>
     c.read(activeSessionProvider).activeLayer;
 
-InProgressStrokePainter painterOf(WidgetTester tester) {
+DocumentPainter painterOf(WidgetTester tester) {
   final paint = tester.widget<CustomPaint>(
-    find.descendant(
-      of: find.byType(StrokeCapture),
-      matching: find.byType(CustomPaint),
-    ),
+    find
+        .ancestor(
+          of: find.byType(StrokeCapture),
+          matching: find.byType(CustomPaint),
+        )
+        .first,
   );
-  return paint.painter! as InProgressStrokePainter;
+  return paint.painter! as DocumentPainter;
 }
+
+/// Points of the stroke currently under the pointer, as the painter sees them.
+List<StrokePoint> livePointsOf(WidgetTester tester) =>
+    painterOf(tester).liveStroke?.points ?? const [];
 
 void main() {
   group('fitScale', () {
@@ -105,7 +111,7 @@ void main() {
   group('in-progress rendering', () {
     testWidgets('the painter starts with no points', (tester) async {
       await pumpCanvas(tester);
-      expect(painterOf(tester).points, isEmpty);
+      expect(livePointsOf(tester), isEmpty);
     });
 
     testWidgets('points accumulate on the painter while dragging', (
@@ -116,26 +122,23 @@ void main() {
 
       final gesture = await tester.startGesture(page);
       await tester.pump();
-      expect(painterOf(tester).points, hasLength(1));
+      expect(livePointsOf(tester), hasLength(1));
 
       // The second raw point emits nothing: a curve segment needs three points
       // before it has a control point.
       await gesture.moveBy(const Offset(10, 0));
       await tester.pump();
-      expect(painterOf(tester).points, hasLength(1));
+      expect(livePointsOf(tester), hasLength(1));
 
       // The third completes the first segment: its start plus the samples.
       await gesture.moveBy(const Offset(10, 0));
       await tester.pump();
-      expect(painterOf(tester).points, hasLength(1 + 1 + kSmoothingSamples));
+      expect(livePointsOf(tester), hasLength(1 + 1 + kSmoothingSamples));
 
       // Each further point emits exactly one segment.
       await gesture.moveBy(const Offset(10, 0));
       await tester.pump();
-      expect(
-        painterOf(tester).points,
-        hasLength(1 + 1 + 2 * kSmoothingSamples),
-      );
+      expect(livePointsOf(tester), hasLength(1 + 1 + 2 * kSmoothingSamples));
 
       await gesture.up();
       await tester.pump();
@@ -152,7 +155,7 @@ void main() {
       await gesture.up();
       await tester.pump();
 
-      expect(painterOf(tester).points, isEmpty);
+      expect(livePointsOf(tester), isEmpty);
     });
 
     testWidgets('painted points are in document space, not screen space', (
@@ -163,7 +166,7 @@ void main() {
 
       final gesture = await tester.startGesture(pageRect.topLeft);
       await tester.pump();
-      final first = painterOf(tester).points.single;
+      final first = livePointsOf(tester).single;
       expect(first.x, closeTo(0, 0.01));
       expect(first.y, closeTo(0, 0.01));
 
@@ -173,11 +176,11 @@ void main() {
       await gesture.moveTo(pageRect.bottomRight - const Offset(1, 1));
       await tester.pump();
 
-      for (final p in painterOf(tester).points) {
+      for (final p in livePointsOf(tester)) {
         expect(p.x, inInclusiveRange(0, 1920));
         expect(p.y, inInclusiveRange(0, 1080));
       }
-      expect(painterOf(tester).points.last.x, greaterThan(500));
+      expect(livePointsOf(tester).last.x, greaterThan(500));
 
       await gesture.up();
       await tester.pump();
@@ -216,9 +219,81 @@ void main() {
 
       final stroke = layer.elements.single as Stroke;
       expect(stroke.points.length, greaterThan(1));
-      expect(stroke.baseWidth, kDefaultStrokeWidth);
-      expect(stroke.colorRGBA, kDefaultStrokeColorRGBA);
+      expect(stroke.baseWidth, const Brush().baseWidth);
+      expect(stroke.colorRGBA, kDefaultBrushColorRGBA);
       expect(stroke.toolId, ToolId.pen);
+    });
+
+    testWidgets('a committed stroke takes the current brush', (tester) async {
+      final container = await pumpCanvas(tester);
+      container.read(brushProvider.notifier)
+        ..setColor(0x1E88E5FF)
+        ..setWidth(23);
+      await tester.pump();
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(_pageKey)),
+      );
+      await gesture.moveBy(const Offset(20, 20));
+      await gesture.up();
+      await tester.pump();
+
+      final stroke = activeLayerOf(container).elements.single as Stroke;
+      expect(stroke.colorRGBA, 0x1E88E5FF);
+      expect(stroke.baseWidth, 23);
+    });
+
+    testWidgets('the eraser tool commits an eraser stroke', (tester) async {
+      final container = await pumpCanvas(tester);
+      container.read(toolProvider.notifier).select(Tool.eraser);
+      await tester.pump();
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(_pageKey)),
+      );
+      await gesture.moveBy(const Offset(20, 20));
+      await gesture.up();
+      await tester.pump();
+
+      final stroke = activeLayerOf(container).elements.single as Stroke;
+      expect(stroke.toolId, ToolId.eraser);
+      expect(stroke.isEraser, isTrue);
+    });
+
+    testWidgets('the live stroke carries the active tool', (tester) async {
+      final container = await pumpCanvas(tester);
+      container.read(toolProvider.notifier).select(Tool.eraser);
+      await tester.pump();
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(_pageKey)),
+      );
+      await tester.pump();
+
+      expect(painterOf(tester).liveStroke!.isEraser, isTrue);
+      expect(
+        painterOf(tester).liveLayerId,
+        container.read(activeSessionProvider).activeLayerId,
+      );
+
+      await gesture.up();
+      await tester.pump();
+    });
+
+    testWidgets('the live stroke previews the current brush', (tester) async {
+      final container = await pumpCanvas(tester);
+      container.read(brushProvider.notifier).setWidth(31);
+      await tester.pump();
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(_pageKey)),
+      );
+      await tester.pump();
+
+      expect(painterOf(tester).liveStroke!.baseWidth, 31);
+
+      await gesture.up();
+      await tester.pump();
     });
 
     testWidgets('the committed stroke holds document-space points', (
@@ -306,6 +381,52 @@ void main() {
       expect(stroke.points.length, lessThan(unthinned ~/ 3));
     });
 
+    testWidgets('a strong stabilizer suppresses tremor into fewer points', (
+      tester,
+    ) async {
+      final container = await pumpCanvas(tester);
+      final page = tester.getCenter(find.byKey(_pageKey));
+
+      Future<int> drawTremor() async {
+        final gesture = await tester.startGesture(page);
+        for (var i = 0; i < 24; i++) {
+          await gesture.moveBy(Offset(3, i.isEven ? 3 : -3));
+          await tester.pump();
+        }
+        await gesture.up();
+        await tester.pump();
+        return (activeLayerOf(container).elements.last as Stroke).points.length;
+      }
+
+      final unstabilized = await drawTremor();
+
+      container.read(stabilizerStrengthProvider.notifier).set(10);
+      await tester.pump();
+      final stabilized = await drawTremor();
+
+      expect(stabilized, lessThan(unstabilized));
+    });
+
+    testWidgets('a stabilized stroke still ends under the cursor', (
+      tester,
+    ) async {
+      final container = await pumpCanvas(tester);
+      container.read(stabilizerStrengthProvider.notifier).set(8);
+      await tester.pump();
+
+      final pageRect = tester.getRect(find.byKey(_pageKey));
+      final gesture = await tester.startGesture(pageRect.topLeft);
+      await gesture.moveTo(pageRect.center);
+      await gesture.up();
+      await tester.pump();
+
+      // finish() snaps the anchor to the cursor, so the last point is the
+      // release position rather than a string's length behind it.
+      final stroke = activeLayerOf(container).elements.single as Stroke;
+      expect(stroke.points.last.x, closeTo(960, 1));
+      expect(stroke.points.last.y, closeTo(540, 1));
+    });
+
     testWidgets('a cancelled stroke commits nothing', (tester) async {
       final container = await pumpCanvas(tester);
 
@@ -317,7 +438,7 @@ void main() {
       await tester.pump();
 
       expect(documentOf(container).elementCount, 0);
-      expect(painterOf(tester).points, isEmpty);
+      expect(livePointsOf(tester), isEmpty);
     });
 
     testWidgets('a stroke lands on the active layer, not the topmost', (
@@ -384,7 +505,7 @@ void main() {
       await tester.pump();
 
       // The live stroke is gone, but the document keeps it.
-      expect(painterOf(tester).points, isEmpty);
+      expect(livePointsOf(tester), isEmpty);
       expect(activeLayerOf(container).elementCount, 1);
     });
   });

@@ -19,6 +19,11 @@ reader must open it.
 - Immutable domain models: sealed `CanvasElement` with `Stroke` and `Shape`
   variants, `StrokePoint`, `Bounds`, and `Layer`. Strokes and shapes share one
   z-ordered list per layer.
+- Freehand drawing: pressure-sensitive variable-width strokes, input thinning,
+  incremental quadratic-midpoint smoothing, and an optional pull-string
+  stabilizer.
+- Brush toolbar: width slider, eight colour swatches, an HSV custom-colour
+  picker with a recent-colours row, and a pen/eraser toggle.
 - Continuous integration on every push: formatting, static analysis, and tests.
 - Linux AppImage packaging, built and smoke-tested in CI on every push.
 - Tag-driven release workflow publishing the AppImage and a `SHA256SUMS` file.
@@ -26,4 +31,5 @@ reader must open it.
 
 ### Notes
 
-- Nothing is drawable yet. This is a skeleton, not a usable application.
+- You can draw, but not undo, save, or open. There is no file format yet, so
+  nothing you draw survives closing the window.

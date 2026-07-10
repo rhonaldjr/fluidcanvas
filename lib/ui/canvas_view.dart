@@ -5,14 +5,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/domain/models/models.dart';
 import 'package:inkpad/engine/pointer_input.dart';
 import 'package:inkpad/engine/renderer/document_painter.dart';
-import 'package:inkpad/engine/renderer/stroke_painter.dart';
 import 'package:inkpad/engine/smoothing.dart';
+import 'package:inkpad/engine/stabilizer.dart';
 import 'package:inkpad/engine/thinning.dart';
 import 'package:inkpad/state/state.dart';
 import 'package:uuid/uuid.dart';
 
 /// Gap between the page and the edge of the viewport, in screen pixels.
 const double kViewportMargin = 32;
+
+/// Id given to the stroke while it is still under the pointer. It never reaches
+/// the document: [_StrokeCaptureState] mints a fresh id when committing.
+const String kLiveStrokeId = 'live';
 
 /// The gray backdrop with the white document page centered on it.
 ///
@@ -46,7 +50,23 @@ class CanvasView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final document = ref.watch(activeDocumentProvider);
+    final session = ref.watch(activeSessionProvider);
+    final document = session.document;
+    final points = ref.watch(currentStrokeProvider);
+    final brush = ref.watch(brushProvider);
+    final tool = ref.watch(toolProvider);
+
+    // The live stroke is a real Stroke so it paints through exactly the code
+    // that will paint it once committed — including the eraser's blend mode.
+    final liveStroke = points.isEmpty
+        ? null
+        : Stroke(
+            id: kLiveStrokeId,
+            colorRGBA: brush.colorRGBA,
+            baseWidth: brush.baseWidth,
+            toolId: tool.toolId,
+            points: points,
+          );
 
     return ColoredBox(
       color: const Color(0xFF6E6E6E),
@@ -77,13 +97,16 @@ class CanvasView extends ConsumerWidget {
                 // A zero-size page cannot map screen pixels into document
                 // space, so there is nothing to draw or capture.
                 child: scale > 0
-                    ? CustomPaint(
-                        // Committed elements paint beneath the live stroke.
-                        painter: DocumentPainter(
-                          document: document,
-                          scale: scale,
+                    ? RepaintBoundary(
+                        child: CustomPaint(
+                          painter: DocumentPainter(
+                            document: document,
+                            scale: scale,
+                            liveStroke: liveStroke,
+                            liveLayerId: session.activeLayerId,
+                          ),
+                          child: StrokeCapture(scale: scale),
                         ),
-                        child: StrokeCapture(scale: scale),
                       )
                     : null,
               ),
@@ -95,8 +118,8 @@ class CanvasView extends ConsumerWidget {
   }
 }
 
-/// Collects raw [StrokePoint]s from pointer events over the page, paints the
-/// stroke as it is drawn, and commits it to the active layer on pointer-up.
+/// Collects raw [StrokePoint]s from pointer events over the page and commits
+/// them to the active layer on pointer-up.
 ///
 /// From task 6.2 the commit is routed through `AddElementCommand` so it can be
 /// undone; today it mutates the session directly.
@@ -117,6 +140,11 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
 
   /// Smooths the raw input as it streams in, never as a post-pass.
   StrokeSmoother? _smoother;
+
+  /// Decides which raw points survive, before the smoother interpolates
+  /// between them. Rebuilt per stroke so a mid-stroke strength change cannot
+  /// jerk the anchor.
+  Stabilizer? _stabilizer;
 
   /// The last point fed to the smoother. Thinning measures against the raw
   /// input, not the smoothed output, whose interpolated points are deliberately
@@ -141,8 +169,9 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
 
     final point = _pointFrom(event);
     _smoother = StrokeSmoother();
+    _stabilizer = Stabilizer(strength: ref.read(stabilizerStrengthProvider));
     _lastRawPoint = point;
-    _stroke.begin(_smoother!.add(point).single);
+    _stroke.begin(_smoother!.add(_stabilizer!.process(point)!).single);
   }
 
   void _onPointerMove(PointerMoveEvent event) {
@@ -153,6 +182,14 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
   void _onPointerUp(PointerUpEvent event) {
     if (event.pointer != _activePointer) return;
     _feed(_pointFrom(event));
+
+    // Let the anchor catch up to the cursor before closing the stroke.
+    final tail = _stabilizer!.finish();
+    if (tail != null) {
+      for (final smoothed in _smoother!.add(tail)) {
+        _stroke.extend(smoothed);
+      }
+    }
     for (final point in _smoother!.finish()) {
       _stroke.extend(point);
     }
@@ -160,12 +197,16 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
     _endStroke();
   }
 
-  /// Thins [point] against the last raw input, then feeds what survives to the
-  /// smoother, appending whatever it emits.
+  /// Thins [point] against the last raw input, stabilizes what survives, then
+  /// feeds that to the smoother and appends whatever it emits.
   void _feed(StrokePoint point) {
     if (!isFarEnough(_lastRawPoint!, point)) return;
     _lastRawPoint = point;
-    for (final smoothed in _smoother!.add(point)) {
+
+    final stabilized = _stabilizer!.process(point);
+    if (stabilized == null) return;
+
+    for (final smoothed in _smoother!.add(stabilized)) {
       _stroke.extend(smoothed);
     }
   }
@@ -180,13 +221,15 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
     final points = ref.read(currentStrokeProvider);
     if (points.isEmpty) return;
 
+    final brush = ref.read(brushProvider);
     ref
         .read(sessionsProvider.notifier)
         .addElementToActiveLayer(
           Stroke(
             id: const Uuid().v4(),
-            colorRGBA: kDefaultStrokeColorRGBA,
-            baseWidth: kDefaultStrokeWidth,
+            colorRGBA: brush.colorRGBA,
+            baseWidth: brush.baseWidth,
+            toolId: ref.read(toolProvider).toolId,
             points: points,
           ),
         );
@@ -196,25 +239,19 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
     _stroke.clear();
     _activePointer = null;
     _smoother = null;
+    _stabilizer = null;
     _lastRawPoint = null;
   }
 
   @override
   Widget build(BuildContext context) {
-    final points = ref.watch(currentStrokeProvider);
-
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: _onPointerDown,
       onPointerMove: _onPointerMove,
       onPointerUp: _onPointerUp,
       onPointerCancel: _onPointerCancel,
-      child: RepaintBoundary(
-        child: CustomPaint(
-          size: Size.infinite,
-          painter: InProgressStrokePainter(points: points, scale: widget.scale),
-        ),
-      ),
+      child: const SizedBox.expand(),
     );
   }
 }
