@@ -4,11 +4,12 @@ import 'package:inkpad/state/state.dart';
 import 'package:inkpad/ui/app_menu_bar.dart';
 import 'package:inkpad/ui/canvas_view.dart';
 import 'package:inkpad/ui/layer_panel.dart';
+import 'package:inkpad/ui/status_bar.dart';
 import 'package:inkpad/ui/toolbar_strip.dart';
 
 /// Top-level window layout: menu bar across the top, tool strip down the left,
 /// canvas filling the rest. The tab strip slots between the menu bar and the
-/// canvas in task 10.1; the layer panel lands to the right in task 7.1.
+/// canvas in task 12.1; the layer panel lands to the right in task 7.1.
 class AppShell extends ConsumerWidget {
   const AppShell({super.key});
 
@@ -29,25 +30,50 @@ class AppShell extends ConsumerWidget {
           RedoIntent: CallbackAction<RedoIntent>(
             onInvoke: (_) => sessions.redo(),
           ),
+          DeleteSelectionIntent: CallbackAction<DeleteSelectionIntent>(
+            onInvoke: (_) => sessions.deleteSelection(),
+          ),
+          DuplicateSelectionIntent: CallbackAction<DuplicateSelectionIntent>(
+            onInvoke: (_) => sessions.duplicateSelection(),
+          ),
+          SelectAllIntent: CallbackAction<SelectAllIntent>(
+            onInvoke: (_) => sessions.selectAll(),
+          ),
+          DeselectIntent: CallbackAction<DeselectIntent>(
+            onInvoke: (_) => sessions.clearSelection(),
+          ),
+          NudgeIntent: CallbackAction<NudgeIntent>(
+            onInvoke: (intent) => sessions.moveSelection(intent.dx, intent.dy),
+          ),
+          ReorderSelectionIntent: CallbackAction<ReorderSelectionIntent>(
+            onInvoke: (intent) => sessions.reorderSelected(
+              forward: intent.forward,
+              toEnd: intent.toEnd,
+            ),
+          ),
         },
-        child: const Focus(
+        child: Focus(
           autofocus: true,
           child: Scaffold(
             body: Column(
               children: [
-                AppMenuBar(),
+                const AppMenuBar(),
                 Expanded(
                   child: Row(
                     // Without stretch the strip shrink-wraps its content and
                     // floats vertically centred, leaving the scaffold showing
                     // above it.
                     crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
+                    children: const [
                       ToolbarStrip(),
                       Expanded(child: CanvasView()),
                       LayerPanel(),
                     ],
                   ),
+                ),
+                Consumer(
+                  builder: (context, ref, _) =>
+                      StatusBar(scale: ref.watch(pageScaleProvider)),
                 ),
               ],
             ),

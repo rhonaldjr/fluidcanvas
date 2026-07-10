@@ -35,7 +35,7 @@ void main() {
 
   group('dialog', () {
     Future<ProviderContainer> pumpToolbar(WidgetTester tester) async {
-      await tester.binding.setSurfaceSize(const Size(600, 800));
+      await tester.binding.setSurfaceSize(const Size(600, 1400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
       final container = ProviderContainer.test();

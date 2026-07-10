@@ -5,8 +5,8 @@ import 'package:uuid/uuid.dart';
 /// Everything belonging to one open document — one tab.
 ///
 /// There is no global "current document": resolve it from the active session.
-/// Later phases widen this bag with the command stack (6.1), selection (8.3),
-/// viewport transform (12.1), and file path plus dirty flag (11.1, 11.3).
+/// Later phases widen this bag with selection (9.3), the viewport transform
+/// (14.1), and the file path plus dirty flag (13.1, 13.3).
 ///
 /// What deliberately does *not* live here: the active tool, brush settings, and
 /// recent colors. Those are global, so switching tabs never changes the brush
@@ -16,8 +16,11 @@ class DocumentSession {
     required this.id,
     required this.document,
     required this.activeLayerId,
+    this.fitToWindow = true,
+    Set<String> selection = const {},
     CommandStack? commands,
-  }) : commands = commands ?? CommandStack(),
+  }) : selection = Set.unmodifiable(selection),
+       commands = commands ?? CommandStack(),
        assert(
          document.indexOfLayer(activeLayerId) != -1,
          'activeLayerId must name a layer in the document',
@@ -45,6 +48,17 @@ class DocumentSession {
 
   /// The layer new elements are added to. Always names a layer in [document].
   final String activeLayerId;
+
+  /// Whether the document's canvas tracks the window.
+  ///
+  /// On for a new document. Off for one opened from a `.skd`, which keeps the
+  /// canvas size it was saved with — resizing the window must not silently
+  /// rescale a drawing someone saved at a chosen size.
+  final bool fitToWindow;
+
+  /// Ids of the selected elements. Per session, so each tab remembers what it
+  /// had selected.
+  final Set<String> selection;
 
   Layer get activeLayer => document.layerById(activeLayerId)!;
 
@@ -86,6 +100,12 @@ class DocumentSession {
     activeLayerId: document.indexOfLayer(activeLayerId) != -1
         ? activeLayerId
         : document.layers.last.id,
+    fitToWindow: fitToWindow,
+    // A command may have deleted a selected element.
+    selection: {
+      for (final id in selection)
+        if (document.findElement(id) != null) id,
+    },
     commands: commands,
   );
 
@@ -99,6 +119,50 @@ class DocumentSession {
     activeLayerId: document.indexOfLayer(activeLayerId) != -1
         ? activeLayerId
         : document.layers.last.id,
+    fitToWindow: fitToWindow,
+    // Anything the swap removed cannot stay selected.
+    selection: {
+      for (final id in selection)
+        if (document.findElement(id) != null) id,
+    },
+    commands: commands,
+  );
+
+  /// A copy with the given elements selected.
+  DocumentSession withSelection(Set<String> ids) => DocumentSession(
+    id: id,
+    document: document,
+    activeLayerId: activeLayerId,
+    fitToWindow: fitToWindow,
+    selection: ids,
+    commands: commands,
+  );
+
+  /// The selected elements, bottom-first within each layer.
+  List<CanvasElement> get selectedElements => [
+    for (final layer in document.layers)
+      for (final element in layer.elements)
+        if (selection.contains(element.id)) element,
+  ];
+
+  /// The box around everything selected, or `null` when nothing is.
+  Bounds? get selectionBounds {
+    Bounds? result;
+    for (final element in selectedElements) {
+      final b = element.bounds;
+      if (b == null) continue;
+      result = result == null ? b : result.union(b);
+    }
+    return result;
+  }
+
+  /// A copy with the fit-to-window preference flipped.
+  DocumentSession withFitToWindow(bool value) => DocumentSession(
+    id: id,
+    document: document,
+    activeLayerId: activeLayerId,
+    fitToWindow: value,
+    selection: selection,
     commands: commands,
   );
 
@@ -113,6 +177,8 @@ class DocumentSession {
       id: id,
       document: document,
       activeLayerId: layerId,
+      fitToWindow: fitToWindow,
+      selection: selection,
       commands: commands,
     );
   }
@@ -131,12 +197,24 @@ class DocumentSession {
           id == other.id &&
           document == other.document &&
           activeLayerId == other.activeLayerId &&
+          fitToWindow == other.fitToWindow &&
+          _sameSelection(selection, other.selection) &&
           commands == other.commands;
 
   @override
-  int get hashCode => Object.hash(id, document, activeLayerId, commands);
+  int get hashCode => Object.hash(
+    id,
+    document,
+    activeLayerId,
+    fitToWindow,
+    Object.hashAllUnordered(selection),
+    commands,
+  );
 
   @override
   String toString() =>
       'DocumentSession($id, activeLayer: $activeLayerId, $document)';
 }
+
+bool _sameSelection(Set<String> a, Set<String> b) =>
+    a.length == b.length && a.containsAll(b);

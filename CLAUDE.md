@@ -4,11 +4,13 @@ Guidance for Claude Code when working in this repository.
 
 ## Project Overview
 
-**InkPad** (working name) is a cross-platform desktop sketching and light diagramming application. Users draw freehand strokes with a mouse or pressure-sensitive stylus, place predefined shapes (rectangle, ellipse, line, arrow, diamond) that stay resizable, organize work into layers, and save to a proprietary `.skd` file format.
+**InkPad** (working name) is a cross-platform desktop sketching and light diagramming application. Users draw freehand strokes with a mouse or pressure-sensitive stylus, place predefined shapes (rectangle, ellipse, line, arrow, diamond) that stay resizable, type rich text into resizable boxes, organize work into layers, and save to a proprietary `.skd` file format.
 
-Strokes and shapes are peers: both are `CanvasElement`s, both live in a single ordered list per layer (bottom to top), and both share one selection/transform system. Shapes are **parametric** — resizing a rectangle changes its width and height, it never resamples pixels.
+Strokes, shapes and text are peers: all are `CanvasElement`s, all live in a single ordered list per layer (bottom to top), and all share one selection/transform system. Shapes are **parametric** — resizing a rectangle changes its width and height, it never resamples pixels.
 
-The app is **multi-document**: several documents are open at once, each in its own tab. The tab UI arrives in Phase 10, but the state is multi-document from task 2.5.
+**Text** uses system fonts and stores the family name, so a file opened without that family rewraps with different glyphs. Rendering is therefore *not* reproducible across machines: never assert text pixels in a test. A text box has a fixed size and the text shrinks to fit it (down to 25%, then overflows); the fit scale is always derived from the layout, never stored.
+
+The app is **multi-document**: several documents are open at once, each in its own tab. The tab UI arrives in Phase 12, but the state is multi-document from task 2.5.
 
 - **Stack:** Flutter (Dart) targeting Windows, macOS, and Linux desktop
 - **Rendering:** Flutter `CustomPainter` / `Canvas` (Skia-backed)
@@ -36,7 +38,7 @@ lib/
   main.dart                 # app entry, window setup
   app/                      # top-level widget, theming, routing
   domain/                   # pure Dart, NO Flutter imports
-    models/                 #   CanvasElement, Stroke, StrokePoint, Shape, Layer, SkdDocument, Brush
+    models/                 #   CanvasElement, Stroke, StrokePoint, Shape, TextElement, Layer, SkdDocument, Brush
     commands/               #   undo/redo command objects
   format/                   # .skd read/write, pure Dart, NO Flutter imports
     skd_writer.dart
@@ -47,6 +49,7 @@ lib/
     stroke_builder.dart     #   pointer events -> smoothed stroke
     smoothing.dart
     hit_test.dart           #   pure element hit-testing
+    text_layout.dart        #   paragraph layout + shrink-to-fit
     shape_paths.dart        #   pure (ShapeType, Rect) -> ui.Path
     renderer/               #   CustomPainter implementations, layer compositing
   ui/                       # widgets: canvas view, tab strip, selection overlay, toolbars, panels, dialogs
@@ -60,6 +63,7 @@ test/                       # mirrors lib/ structure
 - All mutations to the document go through command objects in `domain/commands/` (enables undo/redo). Never mutate `SkdDocument` directly from UI code.
 - **There is no "the" document.** Everything scoped to one open document — the `SkdDocument`, its command stack, its selection, its viewport transform, its file path, its dirty flag — lives on a `DocumentSession`, keyed by session id. Resolve it from the active session; never introduce a global singleton for any of these. What *is* global: the active tool, brush settings, and recent colors, so switching tabs doesn't change the brush you're holding.
 - Coordinates in the document model are in **document space** (logical pixels at 100% zoom). The canvas widget owns the document↔screen transform. Hit-testing and transform math run in document space; only the selection overlay's handle *sizes* are in screen space.
+- **The canvas follows the window.** Resizing the window resizes the document and scales every element with it, uniformly, through a `ResizeCanvasCommand` — never by stretching, which would shear rotated shapes. Zoom (Phase 14) is the opposite: a view transform that never touches the document. A document opened from a `.skd` keeps its stored size instead.
 - `CanvasElement` is a sealed type. Adding a variant means updating the codec, the renderer, and hit-testing — the compiler will tell you where via exhaustive switches. Never add an element variant without a codec round-trip test.
 - Element order within `Layer.elements` is z-order, bottom to top. Do not infer z-order from anything else.
 
@@ -71,7 +75,7 @@ A `.skd` file is a standard ZIP archive:
 mimetype                    # plain text: "application/x-skd" (stored, not compressed, first entry)
 manifest.json               # format info
 document.json               # document structure
-elements/<layer-uuid>.bin   # binary element data (strokes + shapes), one file per layer
+elements/<layer-uuid>.bin   # binary element data (strokes, shapes, text), one file per layer
 thumbnail.png               # 256px-max preview
 ```
 
@@ -115,7 +119,7 @@ File header:
   elementCount u32
 
 Per element:
-  elementType  u8    (0 = stroke, 1 = shape)
+  elementType  u8    (0 = stroke, 1 = shape, 2 = text)
   reserved     u8[3] (write zeros; readers must ignore)
   body               (layout depends on elementType, below)
 
@@ -140,7 +144,33 @@ Shape body (elementType 1):
   fillColorRGBA   u32 (alpha 0 = unfilled)
   strokeWidth  f32
   seed         u32   (reserved for future rough/hand-drawn rendering; write 0)
+
+Text body (elementType 2):
+  x            f32
+  y            f32
+  w            f32   (box width; text wraps to it)
+  h            f32   (box height; text shrinks to fit it)
+  rotation     f32   (radians, clockwise, about the box center)
+  fontSize     f32   (a maximum: the rendered size is fontSize * fitScale)
+  colorRGBA    u32
+  align        u8    (0 = left, 1 = center, 2 = right)
+  reserved     u8[3] (write zeros; readers must ignore)
+  familyLen    u32
+  family       familyLen × u8   (UTF-8; empty means the platform default)
+  runCount     u32
+  runs         runCount × {
+                 styleFlags u8    (bit 0 bold, bit 1 italic, bit 2 underline)
+                 reserved   u8[3] (write zeros; readers must ignore)
+                 textLen    u32
+                 text       textLen × u8   (UTF-8)
+               }
 ```
+
+The element's text is the concatenation of its runs, so styled ranges cannot
+overlap. Writers emit no empty runs and merge adjacent runs with equal styling;
+readers should tolerate a file that does neither. The rendered font size is
+`fontSize * fitScale`, and `fitScale` is recomputed on load — it is never
+stored, so it can never disagree with the text.
 
 **Format rules:**
 - Readers must reject files whose `formatVersion` is greater than they support, with a clear error.
@@ -160,7 +190,7 @@ Shape body (elementType 1):
 ## Testing
 
 - `domain/`, `format/`, `engine/smoothing`, `engine/hit_test`, `engine/shape_paths`: plain Dart unit tests, high coverage expected.
-- Format tests must include: round-trip equality (for strokes and every shape type), corrupt-file rejection, unknown-future-version rejection, unknown-`elementType` rejection, and golden-fixture loading.
+- Format tests must include: round-trip equality (for strokes, every shape type, and text with mixed runs and non-ASCII), corrupt-file rejection, unknown-future-version rejection, unknown-`elementType` rejection, and golden-fixture loading. Never assert rendered text pixels — the fonts are the user's.
 - Transform math (resize, rotate) must be unit-tested per handle, including dragging a handle past its anchor so width/height flip sign.
 - UI: widget tests for critical interactions (drawing a stroke registers points; dragging the rectangle tool adds a shape; undo restores state). Don't chase pixel-perfect golden images for the canvas.
 

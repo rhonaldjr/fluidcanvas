@@ -144,6 +144,306 @@ class SessionsNotifier extends Notifier<SessionsState> {
     state = state.copyWith(sessions: next);
   }
 
+  /// Turns the active session's fit-to-window preference on or off.
+  ///
+  /// A view preference, not a document change, so it is not undoable.
+  void setFitToWindow(bool value) =>
+      _updateActive(state.activeSession.withFitToWindow(value));
+
+  /// Resizes the active session's canvas as an undoable command.
+  ///
+  /// For a resize the *user* asked for. The window-follow path uses
+  /// [fitCanvasToWindow] instead.
+  void resizeCanvas(int width, int height) {
+    final command = _resizeCommand(width, height);
+    if (command != null) run(command);
+  }
+
+  /// Resizes the canvas to follow the window, **without** an undo entry.
+  ///
+  /// Deliberately not a command. Undoing a window-driven resize would shrink
+  /// the document back while the window stayed put, the layout would notice the
+  /// mismatch and resize it again, and undo would fight the window forever.
+  /// Like zoom, this is the view adapting; unlike zoom, it must rewrite the
+  /// document, because the canvas size *is* document state.
+  void fitCanvasToWindow(int width, int height) {
+    final command = _resizeCommand(width, height);
+    if (command == null) return;
+    final session = state.activeSession;
+    _updateActive(session.withDocument(command.apply(session.document)));
+  }
+
+  /// `null` when the canvas already has that size, which is what stops the
+  /// widget's layout pass from resizing forever.
+  ResizeCanvasCommand? _resizeCommand(int width, int height) {
+    final document = state.activeSession.document;
+    if (document.canvasWidth == width && document.canvasHeight == height) {
+      return null;
+    }
+    return ResizeCanvasCommand(
+      oldWidth: document.canvasWidth,
+      oldHeight: document.canvasHeight,
+      newWidth: width,
+      newHeight: height,
+      oldLayers: document.layers,
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Selection
+  // ---------------------------------------------------------------------
+
+  /// Replaces the selection. Not undoable: selecting is a view concern.
+  void setSelection(Set<String> ids) =>
+      _updateActive(state.activeSession.withSelection(ids));
+
+  void clearSelection() => setSelection(const {});
+
+  /// Adds [id] to the selection, or removes it if already there.
+  void toggleSelected(String id) {
+    final next = {...state.activeSession.selection};
+    if (!next.remove(id)) next.add(id);
+    setSelection(next);
+  }
+
+  void selectAll() => setSelection({
+    for (final layer in state.activeSession.document.layers)
+      if (layer.visible)
+        for (final element in layer.elements) element.id,
+  });
+
+  /// Shows [elements] in place of their originals, **without** an undo entry.
+  ///
+  /// A drag calls this once per frame and pushes a single command when the
+  /// pointer lifts. Pushing per frame would bury the undo stack under a
+  /// hundred entries for one gesture.
+  void previewElements(List<CanvasElement> elements) {
+    if (elements.isEmpty) return;
+    final session = state.activeSession;
+    _updateActive(
+      session.withDocument(replaceElements(session.document, elements)),
+    );
+  }
+
+  /// Commits a drag as one undo entry, from the geometry captured when it
+  /// began. The document already shows the result, so `apply` is a no-op in
+  /// effect — but the command holds the `before` state that undo needs.
+  void commitMove(List<CanvasElement> before, double dx, double dy) {
+    if (before.isEmpty || (dx == 0 && dy == 0)) return;
+    run(MoveElementsCommand(before: before, dx: dx, dy: dy));
+  }
+
+  void commitResize(
+    List<CanvasElement> before,
+    double factor,
+    double originX,
+    double originY,
+  ) {
+    if (before.isEmpty || factor == 1) return;
+    run(
+      ResizeElementsCommand(
+        before: before,
+        factor: factor,
+        originX: originX,
+        originY: originY,
+      ),
+    );
+  }
+
+  void commitRotate(
+    List<CanvasElement> before,
+    double radians,
+    double originX,
+    double originY,
+  ) {
+    if (before.isEmpty || radians == 0) return;
+    run(
+      RotateElementsCommand(
+        before: before,
+        radians: radians,
+        originX: originX,
+        originY: originY,
+      ),
+    );
+  }
+
+  /// Moves the selection by ([dx], [dy]).
+  void moveSelection(double dx, double dy) {
+    final before = state.activeSession.selectedElements;
+    if (before.isEmpty || (dx == 0 && dy == 0)) return;
+    run(MoveElementsCommand(before: before, dx: dx, dy: dy));
+  }
+
+  /// Scales the selection about an anchor.
+  void resizeSelection(double factor, double originX, double originY) {
+    final before = state.activeSession.selectedElements;
+    if (before.isEmpty || factor == 1) return;
+    run(
+      ResizeElementsCommand(
+        before: before,
+        factor: factor,
+        originX: originX,
+        originY: originY,
+      ),
+    );
+  }
+
+  /// Rotates the selection about a point.
+  void rotateSelection(double radians, double originX, double originY) {
+    final before = state.activeSession.selectedElements;
+    if (before.isEmpty || radians == 0) return;
+    run(
+      RotateElementsCommand(
+        before: before,
+        radians: radians,
+        originX: originX,
+        originY: originY,
+      ),
+    );
+  }
+
+  /// Restyles the selected shapes. Strokes in the selection are untouched.
+  void styleSelection({
+    int? strokeColorRGBA,
+    int? fillColorRGBA,
+    double? strokeWidth,
+    StrokeStyle? strokeStyle,
+  }) {
+    final before = state.activeSession.selectedElements
+        .whereType<Shape>()
+        .toList();
+    if (before.isEmpty) return;
+    run(
+      StyleElementsCommand(
+        before: before,
+        strokeColorRGBA: strokeColorRGBA,
+        fillColorRGBA: fillColorRGBA,
+        strokeWidth: strokeWidth,
+        strokeStyle: strokeStyle,
+      ),
+    );
+  }
+
+  /// Deletes everything selected, and clears the selection.
+  void deleteSelection() {
+    final session = state.activeSession;
+    if (session.selection.isEmpty) return;
+
+    final removed = <({String layerId, int index, CanvasElement element})>[];
+    for (final layer in session.document.layers) {
+      for (var i = 0; i < layer.elements.length; i++) {
+        final element = layer.elements[i];
+        if (session.selection.contains(element.id)) {
+          removed.add((layerId: layer.id, index: i, element: element));
+        }
+      }
+    }
+    run(DeleteElementsCommand(removed: removed));
+    clearSelection();
+  }
+
+  /// Copies the selection, offset by ([dx], [dy]), and selects the copies.
+  ///
+  /// The copies land on the active layer, whichever layers the originals came
+  /// from — a duplicate you cannot see would be a bad surprise.
+  void duplicateSelection({double dx = 10, double dy = 10}) {
+    final session = state.activeSession;
+    final originals = session.selectedElements;
+    if (originals.isEmpty) return;
+
+    const uuid = Uuid();
+    final copies = [
+      for (final element in originals)
+        _withId(element.translated(dx, dy), uuid.v4()),
+    ];
+
+    run(
+      DuplicateElementsCommand(layerId: session.activeLayerId, copies: copies),
+    );
+    setSelection({for (final copy in copies) copy.id});
+  }
+
+  /// Moves the single selected element within its layer's z-order.
+  ///
+  /// `toEnd` sends it all the way to the front or the back.
+  void reorderSelected({required bool forward, bool toEnd = false}) {
+    final session = state.activeSession;
+    if (session.selection.length != 1) return;
+
+    final id = session.selection.single;
+    final found = session.document.findElement(id);
+    if (found == null) return;
+
+    final layer = found.layer;
+    final index = layer.indexOfElement(id);
+    final last = layer.elementCount - 1;
+    final target = toEnd
+        ? (forward ? last : 0)
+        : (forward ? index + 1 : index - 1);
+    if (target < 0 || target > last || target == index) return;
+
+    run(
+      ReorderElementCommand(
+        layerId: layer.id,
+        oldIndex: index,
+        newIndex: target,
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Text
+  // ---------------------------------------------------------------------
+
+  /// Commits an editing session's runs as one undo entry.
+  ///
+  /// Typing pushes nothing; the whole session collapses into a single command
+  /// when the box loses focus, so undo steps back an edit rather than a
+  /// keystroke.
+  void commitTextEdit(TextElement before, List<TextRun> after) {
+    if (TextElement.normalizeRuns(after) == before.runs) return;
+    run(EditTextCommand(before: before, after: after));
+  }
+
+  /// Applies bold/italic/underline to a range of a text element.
+  void styleTextRange(
+    TextElement before,
+    int start,
+    int end, {
+    bool? bold,
+    bool? italic,
+    bool? underline,
+  }) {
+    if (end <= start) return;
+    run(
+      StyleTextRunsCommand(
+        before: before,
+        start: start,
+        end: end,
+        bold: bold,
+        italic: italic,
+        underline: underline,
+      ),
+    );
+  }
+
+  /// Changes a text element's family, size, colour, or alignment.
+  void styleTextElement(
+    TextElement before, {
+    String? fontFamily,
+    double? fontSize,
+    int? colorRGBA,
+    TextAlignment? align,
+  }) => run(
+    StyleTextElementCommand(
+      before: before,
+      fontFamily: fontFamily,
+      fontSize: fontSize,
+      colorRGBA: colorRGBA,
+      align: align,
+    ),
+  );
+
   /// Runs [command] against the active session, recording it for undo.
   void run(Command command) => _updateActive(state.activeSession.run(command));
 
@@ -258,3 +558,10 @@ final activeSessionProvider = Provider<DocumentSession>(
 final activeDocumentProvider = Provider<SkdDocument>(
   (ref) => ref.watch(activeSessionProvider).document,
 );
+
+/// A copy of [element] carrying [id].
+CanvasElement _withId(CanvasElement element, String id) => switch (element) {
+  Stroke() => element.copyWith(id: id),
+  Shape() => element.copyWith(id: id),
+  TextElement() => element.copyWith(id: id),
+};

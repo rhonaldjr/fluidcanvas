@@ -13,6 +13,42 @@ class RedoIntent extends Intent {
   const RedoIntent();
 }
 
+/// Delete the selection.
+class DeleteSelectionIntent extends Intent {
+  const DeleteSelectionIntent();
+}
+
+/// Duplicate the selection, offset a little.
+class DuplicateSelectionIntent extends Intent {
+  const DuplicateSelectionIntent();
+}
+
+/// Select every element on every visible layer.
+class SelectAllIntent extends Intent {
+  const SelectAllIntent();
+}
+
+/// Drop the selection.
+class DeselectIntent extends Intent {
+  const DeselectIntent();
+}
+
+/// Nudge the selection by one document pixel, or ten with Shift.
+class NudgeIntent extends Intent {
+  const NudgeIntent(this.dx, this.dy);
+
+  final double dx;
+  final double dy;
+}
+
+/// Move the selected element within its layer's z-order.
+class ReorderSelectionIntent extends Intent {
+  const ReorderSelectionIntent({required this.forward, this.toEnd = false});
+
+  final bool forward;
+  final bool toEnd;
+}
+
 /// Keyboard shortcuts for undo and redo.
 ///
 /// Control and Meta are both bound rather than switched on the platform: a
@@ -27,11 +63,48 @@ const Map<ShortcutActivator, Intent> kUndoRedoShortcuts = {
       RedoIntent(),
   // Windows' second redo binding.
   SingleActivator(LogicalKeyboardKey.keyY, control: true): RedoIntent(),
+
+  SingleActivator(LogicalKeyboardKey.delete): DeleteSelectionIntent(),
+  SingleActivator(LogicalKeyboardKey.backspace): DeleteSelectionIntent(),
+  SingleActivator(LogicalKeyboardKey.escape): DeselectIntent(),
+  SingleActivator(LogicalKeyboardKey.keyD, control: true):
+      DuplicateSelectionIntent(),
+  SingleActivator(LogicalKeyboardKey.keyD, meta: true):
+      DuplicateSelectionIntent(),
+  SingleActivator(LogicalKeyboardKey.keyA, control: true): SelectAllIntent(),
+  SingleActivator(LogicalKeyboardKey.keyA, meta: true): SelectAllIntent(),
+
+  SingleActivator(LogicalKeyboardKey.arrowLeft): NudgeIntent(-1, 0),
+  SingleActivator(LogicalKeyboardKey.arrowRight): NudgeIntent(1, 0),
+  SingleActivator(LogicalKeyboardKey.arrowUp): NudgeIntent(0, -1),
+  SingleActivator(LogicalKeyboardKey.arrowDown): NudgeIntent(0, 1),
+  SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true): NudgeIntent(
+    -10,
+    0,
+  ),
+  SingleActivator(LogicalKeyboardKey.arrowRight, shift: true): NudgeIntent(
+    10,
+    0,
+  ),
+  SingleActivator(LogicalKeyboardKey.arrowUp, shift: true): NudgeIntent(0, -10),
+  SingleActivator(LogicalKeyboardKey.arrowDown, shift: true): NudgeIntent(
+    0,
+    10,
+  ),
+
+  SingleActivator(LogicalKeyboardKey.bracketRight, control: true):
+      ReorderSelectionIntent(forward: true),
+  SingleActivator(LogicalKeyboardKey.bracketLeft, control: true):
+      ReorderSelectionIntent(forward: false),
+  SingleActivator(LogicalKeyboardKey.bracketRight, control: true, shift: true):
+      ReorderSelectionIntent(forward: true, toEnd: true),
+  SingleActivator(LogicalKeyboardKey.bracketLeft, control: true, shift: true):
+      ReorderSelectionIntent(forward: false, toEnd: true),
 };
 
 /// The File/Edit menu bar.
 ///
-/// File items are still disabled: Phase 11 wires them up.
+/// File items are still disabled: Phase 13 wires them up.
 class AppMenuBar extends ConsumerWidget {
   const AppMenuBar({super.key});
 

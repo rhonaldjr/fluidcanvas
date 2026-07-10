@@ -1,18 +1,33 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/domain/models/models.dart';
 
-/// The active drawing tool.
+/// The active tool.
 ///
 /// Global, like the brush: switching tabs must not change the tool in your
-/// hand. Task 8.1 widens this to the shape tools and `select`.
+/// hand.
 enum Tool {
-  pen(ToolId.pen),
-  eraser(ToolId.eraser);
+  select(),
+  pen(strokeToolId: ToolId.pen),
+  eraser(strokeToolId: ToolId.eraser),
+  rectangle(shapeType: ShapeType.rectangle),
+  ellipse(shapeType: ShapeType.ellipse),
+  line(shapeType: ShapeType.line),
+  arrow(shapeType: ShapeType.arrow),
+  diamond(shapeType: ShapeType.diamond),
+  text();
 
-  const Tool(this.toolId);
+  const Tool({this.strokeToolId, this.shapeType});
 
-  /// The `u8` written into the `.skd` element blob.
-  final int toolId;
+  /// The `u8` written into the `.skd` element blob, for the tools that draw
+  /// strokes. `null` for the others.
+  final int? strokeToolId;
+
+  /// The shape this tool draws, or `null` when it draws none.
+  final ShapeType? shapeType;
+
+  bool get drawsStroke => strokeToolId != null;
+  bool get drawsShape => shapeType != null;
+  bool get drawsText => this == Tool.text;
 }
 
 class ToolNotifier extends Notifier<Tool> {

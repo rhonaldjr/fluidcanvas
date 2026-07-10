@@ -3,7 +3,7 @@ import 'package:inkpad/domain/models/models.dart';
 import 'package:inkpad/engine/renderer/layer_cache.dart';
 
 export 'package:inkpad/engine/renderer/layer_cache.dart'
-    show colorFromRGBA, paintStroke;
+    show colorFromRGBA, paintShape, paintStroke, paintText;
 
 /// Paints a whole document straight from its elements, with no layer cache.
 ///
@@ -60,9 +60,9 @@ class DocumentPainter extends CustomPainter {
         case Stroke():
           paintStroke(canvas, element);
         case Shape():
-          // Task 8.2 renders shapes. Deliberately not a `default` case: the
-          // sealed type must keep failing to compile when a variant is added.
-          break;
+          paintShape(canvas, element);
+        case TextElement():
+          paintText(canvas, element);
       }
     }
 

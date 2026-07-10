@@ -30,6 +30,13 @@ reader must open it.
   the command, and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y shortcuts.
 - Layer panel: add, delete, reorder by dragging, rename, opacity, visibility,
   and live thumbnails. Every change is undoable.
+- Responsive canvas: the document follows the window and every element scales
+  with it, uniformly, with a fit-to-window toggle and a status bar.
+- Shapes: rectangle, ellipse, line, arrow and diamond, with fill, dashed and
+  dotted outlines, drag-to-create with Shift/Alt constraints.
+- Selection: click, Shift-click, rubber-band marquee, move, resize, rotate,
+  delete, duplicate and z-order — all undoable, one entry per gesture.
+- Text boxes with rich bold/italic/underline runs, wrapping, and shrink-to-fit.
 - Continuous integration on every push: formatting, static analysis, and tests.
 - Linux AppImage packaging, built and smoke-tested in CI on every push.
 - Tag-driven release workflow publishing the AppImage and a `SHA256SUMS` file.

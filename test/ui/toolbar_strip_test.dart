@@ -6,7 +6,7 @@ import 'package:inkpad/state/state.dart';
 import 'package:inkpad/ui/ui.dart';
 
 Future<ProviderContainer> pumpToolbar(WidgetTester tester) async {
-  await tester.binding.setSurfaceSize(const Size(400, 700));
+  await tester.binding.setSurfaceSize(const Size(400, 1400));
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
   final container = ProviderContainer.test();

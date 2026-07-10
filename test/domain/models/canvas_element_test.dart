@@ -9,6 +9,7 @@ import 'package:inkpad/domain/models/models.dart';
 String describe(CanvasElement element) => switch (element) {
   Stroke() => 'stroke',
   Shape(type: final type) => type.name,
+  TextElement() => 'text',
 };
 
 void main() {
@@ -24,9 +25,19 @@ void main() {
     strokeWidth: 1,
   );
 
+  final text = TextElement.plain(
+    id: 't',
+    x: 0,
+    y: 0,
+    w: 100,
+    h: 40,
+    text: 'hi',
+  );
+
   test('an exhaustive switch covers every variant without a fallback', () {
     expect(describe(stroke), 'stroke');
     expect(describe(shape), 'rectangle');
+    expect(describe(text), 'text');
   });
 
   test('both variants share the CanvasElement contract', () {

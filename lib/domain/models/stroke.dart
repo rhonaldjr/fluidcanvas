@@ -51,6 +51,50 @@ class Stroke extends CanvasElement {
     return Bounds(left: left, top: top, right: right, bottom: bottom);
   }
 
+  @override
+  Stroke scaled(double factor, {double originX = 0, double originY = 0}) {
+    assert(factor > 0, 'scale factor must be positive');
+    return copyWith(
+      baseWidth: baseWidth * factor,
+      points: [
+        for (final p in points)
+          StrokePoint(
+            x: originX + (p.x - originX) * factor,
+            y: originY + (p.y - originY) * factor,
+            pressure: p.pressure,
+          ),
+      ],
+    );
+  }
+
+  @override
+  Stroke translated(double dx, double dy) => copyWith(
+    points: [
+      for (final p in points)
+        StrokePoint(x: p.x + dx, y: p.y + dy, pressure: p.pressure),
+    ],
+  );
+
+  @override
+  Stroke rotated(
+    double radians, {
+    required double originX,
+    required double originY,
+  }) {
+    final cos = math.cos(radians);
+    final sin = math.sin(radians);
+    return copyWith(
+      points: [
+        for (final p in points)
+          StrokePoint(
+            x: originX + (p.x - originX) * cos - (p.y - originY) * sin,
+            y: originY + (p.x - originX) * sin + (p.y - originY) * cos,
+            pressure: p.pressure,
+          ),
+      ],
+    );
+  }
+
   Stroke copyWith({
     String? id,
     int? colorRGBA,

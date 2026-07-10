@@ -24,7 +24,16 @@ Future<ProviderContainer> pumpCanvas(
       child: const MaterialApp(home: Scaffold(body: CanvasView())),
     ),
   );
+  // The document adopts the window on the frame after the first layout, so
+  // settle before anyone reads its size.
+  await tester.pump();
   return container;
+}
+
+/// The canvas size the document has adopted from the window.
+({double w, double h}) canvasOf(ProviderContainer c) {
+  final d = c.read(activeDocumentProvider);
+  return (w: d.canvasWidth.toDouble(), h: d.canvasHeight.toDouble());
 }
 
 SkdDocument documentOf(ProviderContainer c) => c.read(activeDocumentProvider);
@@ -160,7 +169,7 @@ void main() {
     testWidgets('painted points are in document space, not screen space', (
       tester,
     ) async {
-      await pumpCanvas(tester);
+      final container = await pumpCanvas(tester);
       final pageRect = tester.getRect(find.byKey(_pageKey));
 
       final gesture = await tester.startGesture(pageRect.topLeft);
@@ -175,9 +184,10 @@ void main() {
       await gesture.moveTo(pageRect.bottomRight - const Offset(1, 1));
       await tester.pump();
 
+      final canvas = canvasOf(container);
       for (final p in livePointsOf(tester)) {
-        expect(p.x, inInclusiveRange(0, 1920));
-        expect(p.y, inInclusiveRange(0, 1080));
+        expect(p.x, inInclusiveRange(0, canvas.w));
+        expect(p.y, inInclusiveRange(0, canvas.h));
       }
       expect(livePointsOf(tester).last.x, greaterThan(500));
 
@@ -186,9 +196,12 @@ void main() {
     });
 
     testWidgets('the painter is scaled to match the page', (tester) async {
-      await pumpCanvas(tester);
+      final container = await pumpCanvas(tester);
       final pageWidth = tester.getSize(find.byKey(_pageKey)).width;
-      expect(painterOf(tester).scale, closeTo(pageWidth / 1920, 1e-9));
+      expect(
+        painterOf(tester).scale,
+        closeTo(pageWidth / canvasOf(container).w, 1e-9),
+      );
     });
 
     testWidgets('no capture layer exists when the page collapses to zero', (
@@ -306,10 +319,11 @@ void main() {
       await gesture.up();
       await tester.pump();
 
+      final canvas = canvasOf(container);
       final stroke = activeLayerOf(container).elements.single as Stroke;
       expect(stroke.points.first.x, closeTo(0, 0.01));
-      expect(stroke.points.last.x, closeTo(960, 0.5));
-      expect(stroke.points.last.y, closeTo(540, 0.5));
+      expect(stroke.points.last.x, closeTo(canvas.w / 2, 0.5));
+      expect(stroke.points.last.y, closeTo(canvas.h / 2, 0.5));
     });
 
     testWidgets('each drag commits its own stroke', (tester) async {
@@ -421,9 +435,10 @@ void main() {
 
       // finish() snaps the anchor to the cursor, so the last point is the
       // release position rather than a string's length behind it.
+      final canvas = canvasOf(container);
       final stroke = activeLayerOf(container).elements.single as Stroke;
-      expect(stroke.points.last.x, closeTo(960, 1));
-      expect(stroke.points.last.y, closeTo(540, 1));
+      expect(stroke.points.last.x, closeTo(canvas.w / 2, 1));
+      expect(stroke.points.last.y, closeTo(canvas.h / 2, 1));
     });
 
     testWidgets('a cancelled stroke commits nothing', (tester) async {

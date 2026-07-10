@@ -17,6 +17,7 @@ class LayerStackPainter extends CustomPainter {
     required this.scale,
     required this.cache,
     this.liveStroke,
+    this.liveShape,
     this.debugLabel,
   });
 
@@ -34,6 +35,9 @@ class LayerStackPainter extends CustomPainter {
   /// The stroke under the pointer. Painted into the *last* layer of [layers],
   /// which callers arrange to be the active one.
   final Stroke? liveStroke;
+
+  /// The shape being dragged out, painted into the same layer.
+  final Shape? liveShape;
 
   /// Counted by [paintCounts] in debug builds, so tests can assert which
   /// boundaries actually repaint.
@@ -59,22 +63,24 @@ class LayerStackPainter extends CustomPainter {
     canvas.scale(scale);
 
     for (final layer in layers) {
-      final live = identical(layer, layers.last) ? liveStroke : null;
+      final isActive = identical(layer, layers.last);
+      final stroke = isActive ? liveStroke : null;
+      final shape = isActive ? liveShape : null;
       if (!layer.visible || layer.opacity == 0) continue;
-      if (layer.elements.isEmpty && live == null) continue;
-      _paintLayer(canvas, layer, live);
+      if (layer.elements.isEmpty && stroke == null && shape == null) continue;
+      _paintLayer(canvas, layer, stroke, shape);
     }
 
     canvas.restore();
   }
 
-  void _paintLayer(Canvas canvas, Layer layer, Stroke? live) {
+  void _paintLayer(Canvas canvas, Layer layer, Stroke? live, Shape? shape) {
     // Opacity is applied here, not baked into the cached image.
     final composite = Paint()
       ..color = Color.fromARGB((layer.opacity * 255).round(), 0, 0, 0)
       ..filterQuality = FilterQuality.medium;
 
-    if (live == null) {
+    if (live == null && shape == null) {
       if (layer.elements.isEmpty) return;
       canvas.drawImage(
         cache.imageFor(layer, width: documentWidth, height: documentHeight),
@@ -94,7 +100,8 @@ class LayerStackPainter extends CustomPainter {
         Paint()..filterQuality = FilterQuality.medium,
       );
     }
-    paintStroke(canvas, live);
+    if (live != null) paintStroke(canvas, live);
+    if (shape != null) paintShape(canvas, shape);
     canvas.restore();
   }
 
@@ -102,6 +109,7 @@ class LayerStackPainter extends CustomPainter {
   bool shouldRepaint(LayerStackPainter old) =>
       // Layers and strokes are immutable, so a change means a new instance.
       !identical(old.liveStroke, liveStroke) ||
+      !identical(old.liveShape, liveShape) ||
       old.scale != scale ||
       old.documentWidth != documentWidth ||
       old.documentHeight != documentHeight ||

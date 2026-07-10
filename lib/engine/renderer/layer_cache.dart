@@ -2,6 +2,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:inkpad/domain/models/models.dart';
+import 'package:inkpad/engine/shape_paths.dart';
+import 'package:inkpad/engine/text_layout.dart';
 import 'package:inkpad/engine/renderer/variable_width.dart';
 
 /// Unpacks a 0xRRGGBBAA int, as stored on the models and in `.skd`, into a
@@ -37,15 +39,87 @@ void paintStroke(Canvas canvas, Stroke stroke) {
   );
 }
 
-/// Draws one element. Shapes are skipped until task 8.2.
+/// Draws one shape in document space, rotated about its own centre.
+void paintShape(Canvas canvas, Shape shape) {
+  final box = shape.normalized();
+  if (box.w == 0 && box.h == 0) return;
+
+  final rect = Rect.fromLTWH(box.x, box.y, box.w, box.h);
+  final path = buildShapePath(box.type, rect, strokeWidth: box.strokeWidth);
+
+  canvas.save();
+  if (box.isRotated) {
+    canvas
+      ..translate(box.centerX, box.centerY)
+      ..rotate(box.rotation)
+      ..translate(-box.centerX, -box.centerY);
+  }
+
+  // A line and an arrow enclose no area, so a fill colour on one is ignored.
+  if (box.isFilled && shapeTypeIsClosed(box.type)) {
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = colorFromRGBA(box.fillColorRGBA)
+        ..style = PaintingStyle.fill
+        ..isAntiAlias = true,
+    );
+  }
+
+  final pattern = dashPatternFor(box.strokeStyle);
+  canvas.drawPath(
+    pattern == null ? path : dashPath(path, pattern, box.strokeWidth),
+    Paint()
+      ..color = colorFromRGBA(box.strokeColorRGBA)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = box.strokeWidth
+      ..strokeCap = box.strokeStyle == StrokeStyle.dotted
+          ? StrokeCap.round
+          : StrokeCap.butt
+      ..strokeJoin = StrokeJoin.round
+      ..isAntiAlias = true,
+  );
+
+  canvas.restore();
+}
+
+/// Draws one text element, rotated about its own centre and shrunk to fit.
+void paintText(Canvas canvas, TextElement element) {
+  if (element.isEmpty) return;
+  final layout = layoutText(element);
+
+  canvas.save();
+  if (element.isRotated) {
+    canvas
+      ..translate(element.centerX, element.centerY)
+      ..rotate(element.rotation)
+      ..translate(-element.centerX, -element.centerY);
+  }
+  // Never spill outside the box: at the fit floor the text genuinely overflows.
+  canvas
+    ..clipRect(Rect.fromLTWH(element.x, element.y, element.w, element.h))
+    ..drawParagraph(layout.paragraph, Offset(element.x, element.y));
+
+  if (layout.overflows) {
+    // A marker rather than silence: the text is smaller than the floor allows.
+    canvas.drawCircle(
+      Offset(element.x + element.w - 4, element.y + element.h - 4),
+      3,
+      Paint()..color = const Color(0xFFE53935),
+    );
+  }
+  canvas.restore();
+}
+
+/// Draws one element.
 void _paintElement(Canvas canvas, CanvasElement element) {
   switch (element) {
     case Stroke():
       paintStroke(canvas, element);
     case Shape():
-      // Deliberately not a `default` case: the sealed type must keep failing to
-      // compile when a variant is added.
-      break;
+      paintShape(canvas, element);
+    case TextElement():
+      paintText(canvas, element);
   }
 }
 

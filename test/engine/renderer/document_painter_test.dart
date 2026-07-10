@@ -171,18 +171,13 @@ void main() {
       );
     });
 
-    test('shapes are skipped until task 8.2, without crashing', () {
+    test('shapes paint', () {
       final withShape = docWith([
         Layer(id: 'a', name: 'a', elements: [rect('r')]),
       ]);
       expect(
-        () => recordedBytes(DocumentPainter(document: withShape, scale: 1)),
-        returnsNormally,
-      );
-      // Costs the same as a layer whose only element paints nothing.
-      expect(
         recordedBytes(DocumentPainter(document: withShape, scale: 1)),
-        overheadBytes(),
+        greaterThan(overheadBytes()),
       );
     });
 

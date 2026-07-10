@@ -154,6 +154,45 @@ class Shape extends CanvasElement {
     return Bounds(left: left, top: top, right: right, bottom: bottom);
   }
 
+  /// Scaling leaves [rotation] alone: a uniform scale commutes with rotation,
+  /// so the shape keeps its angle and simply grows about the origin.
+  @override
+  Shape scaled(double factor, {double originX = 0, double originY = 0}) {
+    assert(factor > 0, 'scale factor must be positive');
+    return copyWith(
+      x: originX + (x - originX) * factor,
+      y: originY + (y - originY) * factor,
+      w: w * factor,
+      h: h * factor,
+      strokeWidth: strokeWidth * factor,
+    );
+  }
+
+  @override
+  Shape translated(double dx, double dy) => copyWith(x: x + dx, y: y + dy);
+
+  /// The box's centre orbits the origin while the shape's own angle advances,
+  /// so a rotated group turns as one rigid body.
+  @override
+  Shape rotated(
+    double radians, {
+    required double originX,
+    required double originY,
+  }) {
+    final cos = math.cos(radians);
+    final sin = math.sin(radians);
+    final cx = centerX;
+    final cy = centerY;
+    final rx = originX + (cx - originX) * cos - (cy - originY) * sin;
+    final ry = originY + (cx - originX) * sin + (cy - originY) * cos;
+
+    return copyWith(
+      x: x + (rx - cx),
+      y: y + (ry - cy),
+      rotation: rotation + radians,
+    );
+  }
+
   Shape copyWith({
     String? id,
     ShapeType? type,

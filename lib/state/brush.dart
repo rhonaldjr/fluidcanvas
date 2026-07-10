@@ -61,7 +61,7 @@ class BrushNotifier extends Notifier<Brush> {
   Brush build() => const Brush();
 
   /// Clamps into the slider's range rather than asserting: a width nudged by a
-  /// keyboard shortcut (task 13.2) should stop at the end, not crash.
+  /// keyboard shortcut (task 15.2) should stop at the end, not crash.
   void setWidth(double width) => state = state.copyWith(
     baseWidth: width.clamp(kMinBrushWidth, kMaxBrushWidth),
   );

@@ -8,9 +8,9 @@ Draw with a mouse or a pressure-sensitive stylus, drop in resizable shapes, orga
 
 > **Status: pre-alpha. Nothing you draw can be saved.**
 >
-> What exists: freehand drawing with pressure-sensitive width, smoothing, an optional stabilizer, a pen/eraser toggle, a brush toolbar with a colour picker, full undo/redo, and a layer panel. Plus Linux AppImage packaging with a tag-driven release workflow.
+> What exists: freehand drawing, shapes, text boxes, selection with move/resize/rotate, layers, and full undo/redo. The canvas follows the window and scales your drawing with it. Plus Linux AppImage packaging with a tag-driven release workflow.
 >
-> What doesn't: shapes, tabs, and the `.skd` file format — so closing the window loses your work. There are no releases yet.
+> What doesn't: tabs, and the `.skd` file format — so closing the window loses your work. There are no releases yet.
 >
 > Progress is tracked task by task in the [roadmap](Roadmap.md). Watch the repo if you want to know when it becomes usable.
 
