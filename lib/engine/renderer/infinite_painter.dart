@@ -53,23 +53,45 @@ class InfiniteCanvasPainter extends CustomPainter {
       if (!layer.visible || layer.opacity == 0) continue;
       if (layer.elements.isEmpty && !hasLive) continue;
 
-      // A layer composites as a unit: its opacity applies to the whole of it,
-      // and an eraser inside it clears only its own pixels. Blend modes are not
-      // applied here — the bounded renderer does not apply them either, so the
-      // two stay consistent until that gap is closed.
+      // Text glyphs do not survive a saveLayer on the real renderer (see
+      // LayerStackPainter), so the layer's own offscreen buffer — for opacity,
+      // or an eraser's clear — is used only when needed, and text is drawn on
+      // top of it directly. A full-opacity, eraser-free layer draws straight
+      // onto the canvas. Blend modes are not applied here — the bounded
+      // renderer does not apply them either, so the two stay consistent.
+      final needsLayer = textLayerNeedsIsolation(layer, live: live);
+
+      void paintLive() {
+        if (live != null) paintStroke(canvas, live);
+        if (shape != null) paintShape(canvas, shape);
+        if (connector != null) {
+          paintConnector(canvas, connector, layer.elements);
+        }
+      }
+
+      if (!needsLayer) {
+        for (final element in layer.elements) {
+          paintElement(canvas, element, siblings: layer.elements);
+        }
+        paintLive();
+        continue;
+      }
+
       canvas.saveLayer(
         null,
         Paint()..color = Color.fromARGB((layer.opacity * 255).round(), 0, 0, 0),
       );
       for (final element in layer.elements) {
+        if (elementHasText(element)) continue;
         paintElement(canvas, element, siblings: layer.elements);
       }
-      if (live != null) paintStroke(canvas, live);
-      if (shape != null) paintShape(canvas, shape);
-      if (connector != null) {
-        paintConnector(canvas, connector, layer.elements);
-      }
+      paintLive();
       canvas.restore();
+      for (final element in layer.elements) {
+        if (elementHasText(element)) {
+          paintElement(canvas, element, siblings: layer.elements);
+        }
+      }
     }
 
     canvas.restore();

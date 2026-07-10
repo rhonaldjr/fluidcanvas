@@ -132,4 +132,54 @@ void main() {
       expect(cache.length, 0);
     });
   });
+
+  group('text isolation decision (the saveLayer that blanked glyphs)', () {
+    Layer withText({double opacity = 1.0, bool eraser = false}) => Layer(
+      id: 'L',
+      name: 'L',
+      opacity: opacity,
+      elements: [
+        text('t'),
+        if (eraser)
+          Stroke(
+            id: 'e',
+            colorRGBA: 0,
+            baseWidth: 4,
+            toolId: ToolId.eraser,
+            points: const [
+              StrokePoint(x: 0, y: 0, pressure: 1),
+              StrokePoint(x: 5, y: 5, pressure: 1),
+            ],
+          ),
+      ],
+    );
+
+    test('a full-opacity, eraser-free text layer needs no saveLayer', () {
+      // This is the case that was blanking committed text: it must draw direct.
+      expect(textLayerNeedsIsolation(withText()), isFalse);
+    });
+
+    test('a dimmed text layer needs isolation', () {
+      expect(textLayerNeedsIsolation(withText(opacity: 0.5)), isTrue);
+    });
+
+    test('a text layer with an eraser needs isolation', () {
+      expect(textLayerNeedsIsolation(withText(eraser: true)), isTrue);
+    });
+
+    test('a live eraser forces isolation even on a clean text layer', () {
+      final live = Stroke(
+        id: 'live',
+        colorRGBA: 0,
+        baseWidth: 4,
+        toolId: ToolId.eraser,
+      );
+      expect(textLayerNeedsIsolation(withText(), live: live), isTrue);
+    });
+
+    test('a live pen does not force isolation', () {
+      final live = Stroke(id: 'live', colorRGBA: 0xFF, baseWidth: 4);
+      expect(textLayerNeedsIsolation(withText(), live: live), isFalse);
+    });
+  });
 }

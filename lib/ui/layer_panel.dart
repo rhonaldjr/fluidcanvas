@@ -332,16 +332,22 @@ class _LiveThumbnailPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (documentWidth <= 0) return;
+    // No saveLayer around the elements: text glyphs do not render inside one
+    // (see LayerStackPainter). The thumbnail's dimming for a hidden layer is a
+    // flat overlay drawn afterwards instead.
     canvas
-      ..saveLayer(
-        Offset.zero & size,
-        Paint()..color = Color.fromARGB((opacity * 255).round(), 0, 0, 0),
-      )
+      ..save()
       ..scale(size.width / documentWidth);
     for (final element in layer.elements) {
       paintElement(canvas, element, siblings: layer.elements);
     }
     canvas.restore();
+    if (opacity < 1.0) {
+      canvas.drawRect(
+        Offset.zero & size,
+        Paint()..color = const Color(0xFFFFFFFF).withValues(alpha: 1 - opacity),
+      );
+    }
   }
 
   @override

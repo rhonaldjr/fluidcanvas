@@ -48,6 +48,56 @@ class LayerStackPainter extends CustomPainter {
   /// boundaries actually repaint.
   final String? debugLabel;
 
+  /// Paints a text-holding layer without ever putting its text inside an
+  /// offscreen buffer.
+  ///
+  /// The easy, common case — full opacity, no eraser — draws every element
+  /// straight onto the canvas, and the text renders. When the layer needs a
+  /// `saveLayer` (a sub-1 opacity, or an eraser that must clear only its own
+  /// pixels), the non-text content goes inside it and the **text is drawn on
+  /// top, directly**. The compromise is that text in such a layer then sits
+  /// above its own strokes and ignores the layer's opacity — a small, uncommon
+  /// imperfection, chosen over the text vanishing entirely.
+  void _paintTextLayerLive(
+    Canvas canvas,
+    Layer layer,
+    Paint composite,
+    Stroke? live,
+    Shape? shape,
+    Connector? connector,
+  ) {
+    final needsLayer = textLayerNeedsIsolation(layer, live: live);
+
+    void paintLive() {
+      if (live != null) paintStroke(canvas, live);
+      if (shape != null) paintShape(canvas, shape);
+      if (connector != null) paintConnector(canvas, connector, layer.elements);
+    }
+
+    if (!needsLayer) {
+      for (final element in layer.elements) {
+        paintElement(canvas, element, siblings: layer.elements);
+      }
+      paintLive();
+      return;
+    }
+
+    // Non-text content composites inside the layer; text is drawn over it.
+    canvas.saveLayer(null, composite);
+    for (final element in layer.elements) {
+      if (elementHasText(element)) continue;
+      paintElement(canvas, element, siblings: layer.elements);
+    }
+    paintLive();
+    canvas.restore();
+
+    for (final element in layer.elements) {
+      if (elementHasText(element)) {
+        paintElement(canvas, element, siblings: layer.elements);
+      }
+    }
+  }
+
   /// How many times each labelled painter has painted. Debug builds only.
   static final Map<String, int> paintCounts = {};
 
@@ -97,24 +147,18 @@ class LayerStackPainter extends CustomPainter {
       ..color = Color.fromARGB((layer.opacity * 255).round(), 0, 0, 0)
       ..filterQuality = FilterQuality.medium;
 
-    // Text glyphs do not survive `Picture.toImageSync`, which the layer cache
-    // uses — paths (strokes, shapes) rasterize fine, but `drawParagraph` comes
-    // out blank on the real renderer (the offscreen path used by `flutter test`
-    // is the exception, which is why unit tests never caught this). So a layer
-    // holding any text is painted **live**, in z-order, exactly like the export
-    // path does. Layers without text keep the fast cached image.
+    // Text glyphs do not survive being drawn into an offscreen buffer on the
+    // real renderer — neither `Picture.toImageSync` (the layer cache) nor a
+    // `saveLayer`. Paths (strokes, shapes) rasterize fine either way; only
+    // `drawParagraph` comes out blank, and only off `flutter test`'s offscreen
+    // rasterizer, which is why no unit test caught it. So a layer holding any
+    // text is painted **live**, on the main canvas, never through the cache or
+    // inside a saveLayer.
     final hasText = layerHasText(layer);
     final hasLive = live != null || shape != null || connector != null;
 
     if (hasText) {
-      canvas.saveLayer(null, composite);
-      for (final element in layer.elements) {
-        paintElement(canvas, element, siblings: layer.elements);
-      }
-      if (live != null) paintStroke(canvas, live);
-      if (shape != null) paintShape(canvas, shape);
-      if (connector != null) paintConnector(canvas, connector, layer.elements);
-      canvas.restore();
+      _paintTextLayerLive(canvas, layer, composite, live, shape, connector);
       return;
     }
 

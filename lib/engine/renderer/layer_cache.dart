@@ -225,6 +225,21 @@ bool elementHasText(CanvasElement element) => switch (element) {
   Stroke() || Shape() || Connector() => false,
 };
 
+/// Whether a text-holding layer must composite through its own offscreen
+/// buffer — a sub-1 opacity, or an eraser (committed or [live]) that has to
+/// clear only its own pixels.
+///
+/// It matters because text glyphs do not render inside a `saveLayer` on the
+/// real renderer, so a text layer that answers **false** here is drawn straight
+/// onto the canvas (text visible), and one that answers true draws its text on
+/// top of the isolated content instead.
+bool textLayerNeedsIsolation(Layer layer, {Stroke? live}) {
+  final erasing =
+      layer.elements.any((e) => e is Stroke && e.isEraser) ||
+      (live != null && live.isEraser);
+  return layer.opacity < 1.0 || erasing;
+}
+
 /// Draws one element.
 ///
 /// [siblings] is the list [element] lives in. Only a [Connector] needs it: its
