@@ -8,7 +8,7 @@ Guidance for Claude Code when working in this repository.
 
 Strokes, shapes and text are peers: all are `CanvasElement`s, all live in a single ordered list per layer (bottom to top), and all share one selection/transform system. Shapes are **parametric** — resizing a rectangle changes its width and height, it never resamples pixels.
 
-**Text** uses system fonts and stores the family name, so a file opened without that family rewraps with different glyphs. Rendering is therefore *not* reproducible across machines: never assert text pixels in a test. A text box has a fixed size and the text shrinks to fit it (down to 25%, then overflows); the fit scale is always derived from the layout, never stored.
+**Text** uses system fonts and stores the family name, so a file opened without that family rewraps with different glyphs. Rendering is therefore *not* reproducible across machines: never assert text pixels in a test. A text box has a fixed size and the text shrinks to fit it (down to 25%, then overflows); the fit scale is always derived from the layout, never stored. A **corner** handle scales a box and its `fontSize` together; a **side** handle changes one axis of the box alone, so the text rewraps at the same size. Flutter cannot enumerate or query installed fonts: `engine/system_fonts.dart` asks fontconfig and detects a missing family by *measuring* it against a family that certainly does not exist.
 
 The app is **multi-document**: several documents are open at once, each in its own tab. The tab UI arrives in Phase 12, but the state is multi-document from task 2.5.
 
@@ -50,6 +50,7 @@ lib/
     smoothing.dart
     hit_test.dart           #   pure element hit-testing
     text_layout.dart        #   paragraph layout + shrink-to-fit
+    system_fonts.dart       #   enumerate installed families; detect a missing one
     shape_paths.dart        #   pure (ShapeType, Rect) -> ui.Path
     renderer/               #   CustomPainter implementations, layer compositing
   ui/                       # widgets: canvas view, tab strip, selection overlay, toolbars, panels, dialogs

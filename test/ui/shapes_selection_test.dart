@@ -258,11 +258,20 @@ void main() {
       container.read(sessionsProvider.notifier).setSelection({before.id});
       await tester.pump();
 
+      // From the shape's outline, clear of every handle. An unfilled rectangle
+      // is only hit along its stroke, and a handle would start a resize.
       await dragOnPage(
         tester,
-        const Offset(90, 40),
-        const Offset(150, 40),
+        const Offset(65, 40),
+        const Offset(125, 40),
         steps: 10,
+      );
+
+      final session = container.read(activeSessionProvider);
+      expect(session.commands.undoStack, hasLength(2)); // create, then move
+      expect(
+        (elements(container).single as Shape).x,
+        closeTo(before.x + 60, 1),
       );
 
       container.read(sessionsProvider.notifier).undo();

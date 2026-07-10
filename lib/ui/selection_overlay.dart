@@ -27,6 +27,13 @@ enum Handle {
       this == topRight ||
       this == bottomRight ||
       this == bottomLeft;
+
+  /// An edge handle changes one axis of the box. A corner scales both.
+  bool get isEdge =>
+      this == top || this == bottom || this == left || this == right;
+
+  bool get changesWidth => isCorner || this == left || this == right;
+  bool get changesHeight => isCorner || this == top || this == bottom;
 }
 
 /// The point a handle sits on, in document space.
@@ -68,11 +75,11 @@ Handle? handleAt(Bounds box, double x, double y, double scale) {
   return null;
 }
 
-/// The factor a resize drag implies, given where the pointer is now.
+/// The factor a **corner** drag implies, given where the pointer is now.
 ///
-/// Measured along the diagonal from the pinned [anchor], so dragging a corner
-/// scales uniformly and a shape never shears. Clamped away from zero: a
-/// selection scaled to nothing could never be grabbed again.
+/// Measured along the diagonal from the pinned [anchor], so a corner scales
+/// uniformly and a shape never shears. Clamped away from zero: a selection
+/// scaled to nothing could never be grabbed again.
 double resizeFactor({
   required Offset anchor,
   required Offset start,
@@ -82,6 +89,39 @@ double resizeFactor({
   if (was < 1e-6) return 1;
   final now = (current - anchor).distance;
   return math.max(now / was, 0.01);
+}
+
+/// Smallest box an edge drag will leave, in document pixels.
+const double kMinBoxSize = 8;
+
+/// The box an **edge** drag implies: one axis moves, the other is untouched.
+///
+/// This is what lets a text box be widened without magnifying its text — the
+/// font size is unchanged, so the text simply rewraps. A corner drag scales
+/// both axes and the font with them.
+Bounds resizeBox(Bounds box, Handle handle, Offset current) {
+  var left = box.left;
+  var top = box.top;
+  var right = box.right;
+  var bottom = box.bottom;
+
+  switch (handle) {
+    case Handle.left:
+      left = math.min(current.dx, right - kMinBoxSize);
+    case Handle.right:
+      right = math.max(current.dx, left + kMinBoxSize);
+    case Handle.top:
+      top = math.min(current.dy, bottom - kMinBoxSize);
+    case Handle.bottom:
+      bottom = math.max(current.dy, top + kMinBoxSize);
+    case Handle.topLeft:
+    case Handle.topRight:
+    case Handle.bottomRight:
+    case Handle.bottomLeft:
+    case Handle.rotate:
+      break;
+  }
+  return Bounds(left: left, top: top, right: right, bottom: bottom);
 }
 
 /// Draws the selection box, its handles, and the rotation stalk.

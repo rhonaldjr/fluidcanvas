@@ -88,6 +88,24 @@ class ResizeElementsCommand extends _TransformElementsCommand {
       element.scaled(factor, originX: originX, originY: originY);
 }
 
+/// Sets one element's box without touching the style inside it.
+///
+/// A corner drag emits [ResizeElementsCommand] and scales the font with the
+/// box; a side drag emits this, so the text rewraps at the same size.
+class ResizeBoxCommand extends _TransformElementsCommand {
+  ResizeBoxCommand({required super.before, required this.box})
+    : assert(before.length == 1, 'a box resize acts on one element');
+
+  final Bounds box;
+
+  @override
+  String get label => 'Resize';
+
+  @override
+  CanvasElement transform(CanvasElement element) =>
+      elementWithBox(element, box);
+}
+
 /// Rotates elements about a point.
 class RotateElementsCommand extends _TransformElementsCommand {
   RotateElementsCommand({

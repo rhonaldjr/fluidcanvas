@@ -250,6 +250,14 @@ class SessionsNotifier extends Notifier<SessionsState> {
     );
   }
 
+  /// Commits a side-handle drag: the box changed, the style did not.
+  void commitResizeBox(CanvasElement before, Bounds box) {
+    if (box.width <= 0 || box.height <= 0) return;
+    // A drag that ended where it began: nothing to undo.
+    if (before.bounds == box) return;
+    run(ResizeBoxCommand(before: [before], box: box));
+  }
+
   void commitRotate(
     List<CanvasElement> before,
     double radians,

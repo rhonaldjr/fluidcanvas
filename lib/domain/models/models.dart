@@ -3,6 +3,7 @@
 // Stroke and Shape live inside canvas_element.dart as parts, because Dart
 // requires sealed subtypes to share a library.
 export 'bounds.dart';
+export 'box_resize.dart';
 export 'canvas_element.dart';
 export 'layer.dart';
 export 'skd_document.dart';

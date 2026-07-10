@@ -5,6 +5,7 @@
 // resolve it from the active session.
 export 'brush.dart';
 export 'current_shape.dart';
+export 'fonts.dart';
 export 'current_stroke.dart';
 export 'document_session.dart';
 export 'layer_cache_provider.dart';

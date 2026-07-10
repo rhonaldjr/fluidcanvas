@@ -292,6 +292,10 @@ class TextStyleControls extends ConsumerWidget {
               ),
           ],
         ),
+        _FontFamilyPicker(selected: selectedText),
+        if (selectedText != null &&
+            !ref.watch(fontAvailabilityProvider)(selectedText.fontFamily))
+          _MissingFontNotice(family: selectedText.fontFamily),
         SizedBox(
           width: 56,
           child: TextField(
@@ -318,6 +322,8 @@ class TextStyleControls extends ConsumerWidget {
             },
           ),
         ),
+        const SizedBox(height: 4),
+        _TextColorButton(selected: selectedText),
       ],
     );
   }
@@ -505,6 +511,138 @@ class ColorSwatch_ extends StatelessWidget {
               color: selected ? theme.colorScheme.primary : theme.dividerColor,
               width: selected ? 3 : 1,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Chooses the family for new text, and restyles the selected box.
+///
+/// Only families the system can actually render are listed. The current family
+/// is always listed even when it is missing, so the picker can show what the
+/// file asked for rather than silently reading as the default.
+class _FontFamilyPicker extends ConsumerWidget {
+  const _FontFamilyPicker({required this.selected});
+
+  final TextElement? selected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current =
+        selected?.fontFamily ?? ref.watch(textStyleProvider).fontFamily;
+    final installed = ref.watch(systemFontsProvider).value ?? const [];
+    final families = <String>{'', ...installed, current}.toList();
+
+    return SizedBox(
+      width: 68,
+      child: DropdownButton<String>(
+        key: const Key('text-family'),
+        value: current,
+        isExpanded: true,
+        isDense: true,
+        underline: const SizedBox.shrink(),
+        style: Theme.of(context).textTheme.labelSmall,
+        items: [
+          for (final family in families)
+            DropdownMenuItem(
+              value: family,
+              child: Text(
+                family.isEmpty ? 'System' : family,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        onChanged: (family) {
+          if (family == null) return;
+          ref.read(textStyleProvider.notifier).setFamily(family);
+          final element = selected;
+          if (element != null) {
+            ref
+                .read(sessionsProvider.notifier)
+                .styleTextElement(element, fontFamily: family);
+          }
+        },
+      ),
+    );
+  }
+}
+
+/// Says out loud that a file named a font this machine does not have.
+///
+/// Without it the text renders in the default face and nothing explains why —
+/// the box would just look wrong on one machine and right on another.
+class _MissingFontNotice extends StatelessWidget {
+  const _MissingFontNotice({required this.family});
+
+  final String family;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      message: '"$family" is not installed. Showing the default font instead.',
+      child: SizedBox(
+        key: const Key('text-font-missing'),
+        width: 68,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.warning_amber, size: 12, color: theme.colorScheme.error),
+            const SizedBox(width: 2),
+            Flexible(
+              child: Text(
+                'missing',
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The text colour, picked with the same HSV dialog as the brush (task 4.3).
+class _TextColorButton extends ConsumerWidget {
+  const _TextColorButton({required this.selected});
+
+  final TextElement? selected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rgba = selected?.colorRGBA ?? ref.watch(textStyleProvider).colorRGBA;
+
+    return Tooltip(
+      message: 'Text colour',
+      child: InkWell(
+        key: const Key('text-color'),
+        onTap: () async {
+          final picked = await showColorPickerDialog(
+            context,
+            initialRGBA: rgba,
+          );
+          if (picked == null) return;
+          ref.read(textStyleProvider.notifier).setColor(picked);
+          ref.read(recentColorsProvider.notifier).add(picked);
+          final element = selected;
+          if (element != null) {
+            ref
+                .read(sessionsProvider.notifier)
+                .styleTextElement(element, colorRGBA: picked);
+          }
+        },
+        child: Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: colorFromRGBA(rgba),
+            shape: BoxShape.circle,
+            border: Border.all(color: Theme.of(context).dividerColor),
           ),
         ),
       ),

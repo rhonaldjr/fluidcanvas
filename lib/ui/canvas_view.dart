@@ -304,6 +304,9 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
 
   /// The transform the drag has reached so far.
   double _dragFactor = 1;
+
+  /// The box a side-handle drag has reached, in document space.
+  Bounds? _dragBox;
   double _dragRotation = 0;
   Offset _dragOffset = Offset.zero;
 
@@ -445,6 +448,7 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
     final at = Offset(point.x, point.y);
     _selectAnchor = at;
     _dragFactor = 1;
+    _dragBox = null;
     _dragRotation = 0;
     _dragOffset = Offset.zero;
 
@@ -456,9 +460,13 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
         _handle = handle;
         _boxAtDragStart = box;
         _elementsAtDragStart = session.selectedElements;
-        _gesture = handle == Handle.rotate
-            ? _SelectGesture.rotate
-            : _SelectGesture.resize;
+        _gesture = switch (handle) {
+          Handle.rotate => _SelectGesture.rotate,
+          // A side handle changes the box on one axis — text rewraps at the
+          // same font size — but only for a lone, unrotated, boxed element.
+          _ when handle.isEdge && _canBoxResize => _SelectGesture.resizeBox,
+          _ => _SelectGesture.resize,
+        };
         return;
       }
     }
@@ -479,6 +487,11 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
     _elementsAtDragStart = ref.read(activeSessionProvider).selectedElements;
     _gesture = _SelectGesture.move;
   }
+
+  /// Whether the element captured at drag start takes a one-axis box resize.
+  bool get _canBoxResize =>
+      _elementsAtDragStart.length == 1 &&
+      canResizeBox(_elementsAtDragStart.single);
 
   void _updateSelect(StrokePoint point) {
     final at = Offset(point.x, point.y);
@@ -501,6 +514,10 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
         _preview(
           (e) => e.scaled(_dragFactor, originX: anchor.dx, originY: anchor.dy),
         );
+
+      case _SelectGesture.resizeBox:
+        _dragBox = resizeBox(_boxAtDragStart!, _handle!, at);
+        _preview((e) => elementWithBox(e, _dragBox!));
 
       case _SelectGesture.rotate:
         final centre = _dragCentre;
@@ -548,6 +565,11 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
           anchor.dx,
           anchor.dy,
         );
+      case _SelectGesture.resizeBox:
+        if (_dragBox != null) {
+          _sessions.commitResizeBox(_elementsAtDragStart.single, _dragBox!);
+        }
+
       case _SelectGesture.rotate:
         final centre = _dragCentre;
         _sessions.commitRotate(
@@ -688,4 +710,4 @@ class _StrokeCaptureState extends ConsumerState<StrokeCapture> {
 }
 
 /// What a select-tool drag is doing.
-enum _SelectGesture { none, marquee, move, resize, rotate }
+enum _SelectGesture { none, marquee, move, resize, resizeBox, rotate }

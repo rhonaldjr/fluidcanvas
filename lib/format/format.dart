@@ -1,4 +1,7 @@
 // .skd read/write. NO Flutter imports.
-//
-// skd_writer.dart, skd_reader.dart, element_codec.dart, manifest.dart.
-// Populated by Phase 11.
+export 'document_json.dart';
+export 'element_codec.dart';
+export 'manifest.dart';
+export 'skd_exception.dart';
+export 'skd_reader.dart';
+export 'skd_writer.dart';
