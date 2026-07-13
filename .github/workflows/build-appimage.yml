@@ -64,3 +64,14 @@ jobs:
           name: InkPad-x86_64.AppImage
           path: dist/InkPad-x86_64.AppImage
           if-no-files-found: error
+
+      # The .deb comes off the same release bundle. build_appimage.sh cleared
+      # and repopulated dist/, so build the .deb after it to keep both.
+      - name: Package .deb
+        run: ./scripts/build_deb.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inkpad-deb
+          path: dist/inkpad_*_amd64.deb
+          if-no-files-found: error

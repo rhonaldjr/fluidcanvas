@@ -3,13 +3,16 @@
   Teaches the freedesktop MIME database about .skd, so a double-clicked
   drawing opens in InkPad and shows the document icon.
 
-  Install with:
-    xdg-mime install --novendor inkpad-skd.xml
-    xdg-icon-resource install --context mimetypes --size 256 \
-        application-x-skd.png application-x-skd
+  Install by copying this file into a MIME "packages" directory (system-wide
+  /usr/share/mime/packages, or per-user ~/.local/share/mime/packages) and
+  running update-mime-database on the parent directory. The .deb and Flatpak
+  do this for you; the "xdg-mime install" tool is the manual equivalent.
+
+  NB: XML comments may not contain a double hyphen, so command flags are
+  described rather than written out literally.
 
   The magic matches the ZIP local-file header followed by the uncompressed
-  "mimetype" entry the format spec requires as the first entry — the same
+  "mimetype" entry the format spec requires as the first entry: the same
   trick ODF and EPUB use, and the reason mimetype is stored, not deflated.
 -->
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">

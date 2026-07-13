@@ -3,6 +3,28 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+/// Families shipped inside the app (see `pubspec.yaml`'s `fonts:` and
+/// `fonts/`). Unlike a system font, one of these is present on *every* machine,
+/// so text that uses it renders identically everywhere — the whole point of
+/// bundling. Listed first in the picker and always reported available.
+///
+/// Order matters: [kDefaultFontFamily] is the first entry. Kalam (a hand-drawn
+/// face) leads so new drawings feel sketched, like Excalidraw; the DejaVu trio
+/// follows for anyone who wants a plain sans, serif, or monospace.
+const List<String> kBundledFontFamilies = [
+  'Kalam',
+  'DejaVu Sans',
+  'DejaVu Serif',
+  'DejaVu Sans Mono',
+];
+
+/// The family new text is created with. A bundled family (not the empty
+/// platform default), so a fresh drawing's text — and its thumbnail and PNG
+/// export — looks the same on every machine. The user can still choose any
+/// other family, including "System" (the empty family) for the host's own
+/// default face; a change is saved with the document and restored on open.
+const String kDefaultFontFamily = 'Kalam';
+
 /// Families offered when the platform cannot be enumerated.
 ///
 /// A name here is only a *candidate*: it is shown to the user after
@@ -43,6 +65,10 @@ const String kMissingFamilyProbe = '__inkpad_no_such_family__';
 ///    as missing. That costs the user a warning label, never their text.
 bool isFontAvailable(String family) {
   if (family.isEmpty) return true;
+  // A bundled family travels with the app, so it is available by construction —
+  // no measurement needed, and none that could be fooled by a host whose
+  // default face happens to share the bundled font's metrics.
+  if (kBundledFontFamilies.contains(family)) return true;
   return _measure(family) != _measure(kMissingFamilyProbe);
 }
 
@@ -63,18 +89,22 @@ Size _measure(String family) {
   return size;
 }
 
-/// The font families installed on this machine, sorted, at most
-/// [kMaxFontFamilies] of them.
+/// The families the picker offers: the bundled ones first, then whatever this
+/// machine has, sorted, capped at [kMaxFontFamilies].
 ///
 /// Asks fontconfig on Linux. Everywhere else — and whenever `fc-list` is
 /// missing or fails — falls back to [kFallbackFontFamilies] filtered by
 /// [isFontAvailable], so the picker never offers a font that will not render.
-/// macOS enumeration arrives with its build, in Phase 16.
+///
+/// The bundled families are prepended (not merged-then-sorted) so they are
+/// guaranteed present even on a machine with hundreds of fonts alphabetically
+/// ahead of them, and so the reliable, curated faces sit at the top.
 Future<List<String>> systemFontFamilies() async {
   final families = Platform.isLinux ? await _fontconfigFamilies() : null;
   final found = families ?? kFallbackFontFamilies.where(isFontAvailable);
-  final sorted = found.toSet().toList()..sort();
-  return sorted.take(kMaxFontFamilies).toList();
+  final system = (found.toSet()..removeAll(kBundledFontFamilies)).toList()
+    ..sort();
+  return [...kBundledFontFamilies, ...system].take(kMaxFontFamilies).toList();
 }
 
 Future<List<String>?> _fontconfigFamilies() async {

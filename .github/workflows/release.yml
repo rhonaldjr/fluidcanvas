@@ -36,6 +36,11 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
+          name: inkpad-deb
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
           name: InkPad-arm64.dmg
           path: dist
 
@@ -61,7 +66,7 @@ jobs:
         working-directory: dist
         run: |
           chmod +x InkPad-x86_64.AppImage
-          sha256sum InkPad-x86_64.AppImage InkPad-arm64.dmg > SHA256SUMS
+          sha256sum InkPad-x86_64.AppImage inkpad_*_amd64.deb InkPad-arm64.dmg > SHA256SUMS
           cat SHA256SUMS
 
       - name: Extract release notes
@@ -73,6 +78,7 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             dist/InkPad-x86_64.AppImage \
+            dist/inkpad_*_amd64.deb \
             dist/InkPad-arm64.dmg \
             dist/SHA256SUMS \
             --title "InkPad ${{ steps.version.outputs.version }}" \

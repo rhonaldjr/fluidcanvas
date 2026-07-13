@@ -89,6 +89,46 @@ void main() {
     });
   });
 
+  group('bundled fonts', () {
+    test('every bundled family reports available without measuring', () {
+      // The short-circuit matters: a test binding resolves every family to one
+      // test font, so the measurement path would call them all missing.
+      for (final family in kBundledFontFamilies) {
+        expect(isFontAvailable(family), isTrue, reason: family);
+      }
+    });
+
+    test('the default family is the first bundled family', () {
+      expect(kBundledFontFamilies, isNotEmpty);
+      expect(kBundledFontFamilies.first, kDefaultFontFamily);
+      expect(kBundledFontFamilies, contains(kDefaultFontFamily));
+    });
+
+    test(
+      'new text is created with the bundled default, not the platform font',
+      () {
+        expect(const TextStyleSettings().fontFamily, kDefaultFontFamily);
+        expect(kDefaultFontFamily, isNotEmpty);
+      },
+    );
+
+    testWidgets('a box placed with the text tool takes the bundled default', (
+      tester,
+    ) async {
+      final container = await pumpShell(tester);
+      container.read(toolProvider.notifier).select(Tool.text);
+      await tester.pumpAndSettle();
+      final origin = tester.getRect(find.byType(AppShell)).topLeft;
+      await tester.tapAt(origin + const Offset(200, 400));
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(textEditingProvider)?.original.fontFamily,
+        kDefaultFontFamily,
+      );
+    });
+  });
+
   group('10.8 family picker', () {
     testWidgets('lists the system default and every installed family', (
       tester,

@@ -207,9 +207,9 @@ Deferred until the app is feature-complete and polished on Linux. It sits after 
 ## Later / Ideas (unscheduled)
 
 - Windows binaries in CI. The `windows/` target already builds locally; this is a packaging job (MSIX or an Inno Setup installer) plus code signing, deliberately deferred.
-- Linux packaging beyond AppImage: Flatpak, `.deb`, AUR.
+- ~~Linux packaging beyond AppImage: Flatpak, `.deb`, AUR.~~ **Done.** `scripts/build_deb.sh` builds a `.deb` from the release bundle (payload under `/opt/inkpad`, `/usr/bin/inkpad` symlink, desktop file, MIME rule, all icon sizes, AppStream metainfo, cache-refreshing postinst); it's wired into `build-appimage.yml` and attached to releases. `packaging/flatpak/io.github.rhonaldjr.InkPad.yml` packages the prebuilt bundle (shared metainfo, app-id-renamed desktop/icons); `packaging/aur/PKGBUILD` is a `-bin` package that extracts the released AppImage. Fixed a latent bug: `inkpad-skd.xml`'s comment held double hyphens, which is invalid XML and made `update-mime-database` reject the `.skd` association.
 - macOS Intel (x86_64) or universal builds, if anyone asks.
-- Bundled fonts, so text renders identically on every machine. Would make thumbnails and PNG exports reproducible and let golden fixtures assert pixels. The format already stores a family name, so a bundled family is just a name the reader always resolves.
+- ~~Bundled fonts, so text renders identically on every machine.~~ **Done.** Kalam (a hand-drawn OFL face, an Excalidraw-like default) plus DejaVu Sans/Serif/Mono are bundled (`fonts/`, registered in `pubspec.yaml`) and treated as always-available named families. New text defaults to Kalam, so a fresh drawing has the sketched look out of the box and its text — and its thumbnail and PNG export — is reproducible everywhere; "System" (the platform font) and any installed family stay options, and a font change is saved with the document and restored on open. A bundled family also enables golden pixel tests later, though none are added yet.
 - Format v2: per-point timestamps + tilt (bump `formatVersion`, keep v1 reader)
 - Layer groups and clipping masks
 - Tablet pen buttons / eraser-tip mapping

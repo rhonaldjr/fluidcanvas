@@ -1,0 +1,77 @@
+# Flatpak manifest for InkPad.
+#
+# Flutter-on-Flathub-from-source is painful (the SDK has to be vendored), so
+# this packages a bundle you build first, the way a self-distributed Flatpak
+# usually does:
+#
+#   flutter build linux --release
+#   flatpak-builder --force-clean --install --user \
+#       build/flatpak packaging/flatpak/io.github.rhonaldjr.InkPad.yml
+#   flatpak run io.github.rhonaldjr.InkPad
+#
+# To emit a single-file bundle for a release:
+#   flatpak-builder --repo=build/flatpak-repo --force-clean \
+#       build/flatpak packaging/flatpak/io.github.rhonaldjr.InkPad.yml
+#   flatpak build-bundle build/flatpak-repo dist/InkPad.flatpak \
+#       io.github.rhonaldjr.InkPad
+app-id: io.github.rhonaldjr.InkPad
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: inkpad
+
+finish-args:
+  # Windowing: Wayland when present, X11 otherwise.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  # GPU acceleration for the Skia canvas.
+  - --device=dri
+  # file_selector on Linux opens a GTK chooser directly rather than through a
+  # portal, so the sandbox needs real access to the user's files to open and
+  # save .skd drawings.
+  - --filesystem=home
+
+modules:
+  - name: inkpad
+    buildsystem: simple
+    build-commands:
+      # The Flutter bundle. The embedder finds data/ and lib/ via
+      # /proc/self/exe, so /app/bin/inkpad is a symlink into the bundle.
+      - install -d /app/inkpad
+      - cp -r bundle/. /app/inkpad/
+      - install -d /app/bin
+      - ln -s /app/inkpad/inkpad /app/bin/inkpad
+
+      # Flatpak requires the desktop file, icon, and metainfo to be named for
+      # the app-id. Rewrite the everyday names to the reverse-DNS ones.
+      - install -Dm644 inkpad.desktop /app/share/applications/io.github.rhonaldjr.InkPad.desktop
+      - desktop-file-edit
+          --set-icon=io.github.rhonaldjr.InkPad
+          --set-key=StartupWMClass --set-value=io.github.rhonaldjr.InkPad
+          /app/share/applications/io.github.rhonaldjr.InkPad.desktop
+      - install -Dm644 io.github.rhonaldjr.InkPad.metainfo.xml /app/share/metainfo/io.github.rhonaldjr.InkPad.metainfo.xml
+      - install -Dm644 inkpad-skd.xml /app/share/mime/packages/io.github.rhonaldjr.InkPad.xml
+
+      # Icons, renamed per size to the app-id.
+      - |
+        for png in icons/hicolor/*/apps/inkpad.png; do
+          size_dir=$(dirname "$(dirname "$png")")
+          install -Dm644 "$png" \
+            "/app/share/icons/hicolor/$(basename "$size_dir")/apps/io.github.rhonaldjr.InkPad.png"
+        done
+      - install -Dm644 icons/hicolor/scalable/apps/inkpad.svg /app/share/icons/hicolor/scalable/apps/io.github.rhonaldjr.InkPad.svg
+
+    sources:
+      - type: dir
+        path: ../../build/linux/x64/release/bundle
+        dest: bundle
+      - type: file
+        path: ../linux/inkpad.desktop
+      - type: file
+        path: ../linux/inkpad-skd.xml
+      - type: file
+        path: ../linux/io.github.rhonaldjr.InkPad.metainfo.xml
+      - type: dir
+        path: ../linux/icons
+        dest: icons

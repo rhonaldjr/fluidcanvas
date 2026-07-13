@@ -8,7 +8,7 @@ Draw with a mouse or a pressure-sensitive stylus, drop in resizable shapes, orga
 
 > **Status: pre-alpha. Nothing you draw can be saved.**
 >
-> What exists: freehand drawing, shapes, text boxes, selection with move/resize/rotate, layers, and full undo/redo. The canvas follows the window and scales your drawing with it. Plus Linux AppImage packaging with a tag-driven release workflow.
+> What exists: freehand drawing, shapes, text boxes with bundled fonts, selection with move/resize/rotate, layers, and full undo/redo. The canvas follows the window and scales your drawing with it. Plus Linux packaging (AppImage, `.deb`, Flatpak, AUR) and a tag-driven release workflow.
 >
 > What doesn't: tabs, and the `.skd` file format — so closing the window loses your work. There are no releases yet.
 >
@@ -29,7 +29,7 @@ Draw with a mouse or a pressure-sensitive stylus, drop in resizable shapes, orga
 
 | Platform | Official binaries | Notes |
 | --- | --- | --- |
-| Linux | AppImage (x86_64) | Built by CI. Developed and tested on Debian-based systems. Needs a desktop with the usual font stack and GL drivers; everything else is bundled. |
+| Linux | AppImage + `.deb` (x86_64) | Both built by CI. Developed and tested on Debian-based systems. Needs a desktop with GL drivers; fonts and the rest are bundled. Flatpak (`packaging/flatpak/`) and an AUR `-bin` package (`packaging/aur/`) are also provided. |
 | macOS | `.dmg` (Apple Silicon) | Built by CI for arm64. **Unsigned** for now, so Gatekeeper blocks the first launch — right-click the app and choose **Open** once to allow it. Signing + notarization are planned. |
 | Windows | None yet | The `windows/` target is in the tree and builds locally. Packaging and signing are deferred. |
 
@@ -73,12 +73,33 @@ flutter analyze              # static analysis — must be clean
 dart format lib test         # formatting
 ```
 
-To build the AppImage locally, after `flutter build linux --release`:
+To build the Linux packages locally, after `flutter build linux --release`:
 
 ```bash
 ./scripts/build_appimage.sh        # → dist/InkPad-x86_64.AppImage
 ./scripts/smoke_test_appimage.sh   # launches it under xvfb to prove it starts
+./scripts/build_deb.sh             # → dist/inkpad_<version>_amd64.deb
 ```
+
+Flatpak and AUR packaging live under `packaging/`. Flatpak wraps the prebuilt
+bundle:
+
+```bash
+flutter build linux --release
+flatpak-builder --force-clean --install --user \
+    build/flatpak packaging/flatpak/io.github.rhonaldjr.InkPad.yml
+```
+
+The AUR `-bin` package (`packaging/aur/PKGBUILD`) installs a released AppImage's
+contents; bump `pkgver` and pin the checksum per release before publishing.
+
+Text uses **bundled fonts** (`fonts/`, declared in `pubspec.yaml`), so a
+drawing's text — and its thumbnail and PNG export — renders identically on
+every machine, and a font choice saved in a `.skd` is restored on open. New
+text defaults to **Kalam**, a hand-drawn face for an Excalidraw-like sketched
+look (an open, OFL stand-in for Excalidraw's own font). The picker also offers
+DejaVu Sans/Serif/Mono, "System" (the host's default face), and any installed
+family.
 
 To build the macOS `.dmg` locally (on an Apple Silicon Mac), after `flutter build macos --release`:
 

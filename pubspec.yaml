@@ -30,3 +30,38 @@ flutter:
     # Handed to GTK as the window icon at startup: an AppImage cannot resolve
     # an icon-theme name, so the pixels travel with the app. See 15.5.
     - packaging/linux/icons/hicolor/256x256/apps/inkpad.png
+
+  # Bundled so a document's text renders identically on every machine — no
+  # dependency on which fonts the host happens to have installed. Named exactly
+  # as their real families ("DejaVu Sans", …), so a bundled family is simply a
+  # name the reader always resolves, and a .skd that references one is portable.
+  # A bundled font also takes precedence over a same-named system font, so the
+  # result is deterministic even where the host has its own DejaVu.
+  #
+  # Regular + Bold only; the engine synthesizes the oblique for italic runs,
+  # which is deterministic and so still reproducible. Licences:
+  # fonts/LICENSE-Kalam.txt (SIL OFL 1.1) and fonts/LICENSE-DejaVu.txt.
+  fonts:
+    # Kalam is a hand-printed face, the default so new drawings have the loose,
+    # sketched feel of Excalidraw out of the box. An open (OFL) stand-in for
+    # Excalidraw's own Excalifont/Virgil, which ship only as subsetted woff2.
+    - family: Kalam
+      fonts:
+        - asset: fonts/Kalam-Regular.ttf
+        - asset: fonts/Kalam-Bold.ttf
+          weight: 700
+    - family: DejaVu Sans
+      fonts:
+        - asset: fonts/DejaVuSans.ttf
+        - asset: fonts/DejaVuSans-Bold.ttf
+          weight: 700
+    - family: DejaVu Serif
+      fonts:
+        - asset: fonts/DejaVuSerif.ttf
+        - asset: fonts/DejaVuSerif-Bold.ttf
+          weight: 700
+    - family: DejaVu Sans Mono
+      fonts:
+        - asset: fonts/DejaVuSansMono.ttf
+        - asset: fonts/DejaVuSansMono-Bold.ttf
+          weight: 700

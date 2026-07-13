@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inkpad/domain/models/models.dart';
+import 'package:inkpad/engine/system_fonts.dart';
 
 /// The text box being edited, if any.
 ///
@@ -70,7 +71,7 @@ final textEditingProvider =
 /// Style new text boxes are created with. Global, like the brush.
 class TextStyleSettings {
   const TextStyleSettings({
-    this.fontFamily = '',
+    this.fontFamily = kDefaultFontFamily,
     this.fontSize = 24,
     this.colorRGBA = 0x1B1B1FFF,
   }) : assert(fontSize > 0, 'fontSize must be positive');

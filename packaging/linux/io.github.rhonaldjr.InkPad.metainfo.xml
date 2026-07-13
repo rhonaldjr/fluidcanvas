@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AppStream metadata, shared by the .deb (installed to
+  /usr/share/metainfo) and the Flatpak (which requires it). The component id is
+  reverse-DNS and doubles as the Flatpak application id; the desktop launchable
+  keeps the everyday `inkpad.desktop` name the AppImage and .deb already use.
+-->
+<component type="desktop-application">
+  <id>io.github.rhonaldjr.InkPad</id>
+
+  <name>InkPad</name>
+  <summary>Freehand sketching and light diagramming</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <developer id="io.github.rhonaldjr">
+    <name>Akro Technologies</name>
+  </developer>
+
+  <description>
+    <p>
+      InkPad is a cross-platform desktop sketching and light diagramming
+      application. Draw freehand strokes with a mouse or a pressure-sensitive
+      stylus, place resizable shapes, type rich text into boxes, organize work
+      into layers, and save to the open .skd file format.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Freehand drawing with several brushes and pressure support</li>
+      <li>Parametric shapes — rectangle, ellipse, line, arrow, diamond — that stay resizable</li>
+      <li>Rich text boxes with bundled fonts, so text looks the same on every machine</li>
+      <li>Layers, groups, connectors, and a full undo/redo history</li>
+      <li>Multi-document tabs with autosave and crash recovery</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">inkpad.desktop</launchable>
+
+  <categories>
+    <category>Graphics</category>
+    <category>2DGraphics</category>
+  </categories>
+
+  <keywords>
+    <keyword>draw</keyword>
+    <keyword>sketch</keyword>
+    <keyword>diagram</keyword>
+    <keyword>paint</keyword>
+  </keywords>
+
+  <provides>
+    <mediatype>application/x-skd</mediatype>
+  </provides>
+
+  <content_rating type="oars-1.1"/>
+
+  <url type="homepage">https://github.com/rhonaldjr/fluidcanvas</url>
+  <url type="bugtracker">https://github.com/rhonaldjr/fluidcanvas/issues</url>
+
+  <releases>
+    <release version="0.1.0" date="2026-07-13">
+      <description>
+        <p>Early access build.</p>
+      </description>
+    </release>
+  </releases>
+</component>

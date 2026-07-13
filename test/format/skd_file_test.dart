@@ -171,6 +171,28 @@ void main() {
       expect(readText.copyWith(id: origText.id), origText);
     });
 
+    test('a font-family change is retained across save and open', () {
+      // What the picker produces: the element's family swapped for another.
+      // Cover a bundled family, a system family the file just names, and
+      // "System" (the empty family) — each must come back exactly.
+      for (final family in ['Kalam', 'DejaVu Serif', 'Some Other Font', '']) {
+        final doc = sampleDocument();
+        final layer = doc.layers.last;
+        final text = layer.elements[1] as TextElement;
+        final edited = doc.replaceLayer(
+          layer.replaceElement(text.copyWith(fontFamily: family)),
+        );
+
+        final read = decodeSkd(
+          encodeSkd(edited, manifest: manifest()),
+          idFor: counter(),
+        ).document;
+
+        final readText = read.layers.last.elements[1] as TextElement;
+        expect(readText.fontFamily, family, reason: 'family "$family"');
+      }
+    });
+
     test('layer properties survive', () {
       final read = decodeSkd(
         encodeSkd(sampleDocument(), manifest: manifest()),

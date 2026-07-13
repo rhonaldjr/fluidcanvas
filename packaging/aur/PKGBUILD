@@ -1,0 +1,50 @@
+# Maintainer: Akro Technologies <rhonaldjr@akrotechnologies.ca>
+#
+# AUR binary package: installs the contents of the released AppImage rather
+# than building from source (Flutter's toolchain is heavy to pull into
+# makepkg). The AppImage is extracted at build time, so no FUSE is needed at
+# run time; /usr/bin/inkpad is a symlink into /opt.
+#
+# Publishing: bump pkgver to the released version, replace the sha256sums entry
+# for the AppImage with the value from that release's SHA256SUMS, and run
+# `makepkg --printsrcinfo > .SRCINFO` before pushing to the AUR.
+pkgname=inkpad-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Freehand sketching and light diagramming (InkPad)"
+arch=('x86_64')
+url="https://github.com/rhonaldjr/fluidcanvas"
+license=('MIT')
+depends=('gtk3')
+provides=('inkpad')
+conflicts=('inkpad')
+options=('!strip')
+source=("InkPad-${pkgver}-x86_64.AppImage::${url}/releases/download/v${pkgver}/InkPad-x86_64.AppImage")
+# Replace 'SKIP' with the real checksum from the release's SHA256SUMS before
+# publishing; SKIP only makes the template build without a pinned release.
+sha256sums=('SKIP')
+
+prepare() {
+  chmod +x "InkPad-${pkgver}-x86_64.AppImage"
+  # Extract into squashfs-root/ without mounting (no FUSE required).
+  "./InkPad-${pkgver}-x86_64.AppImage" --appimage-extract >/dev/null
+}
+
+package() {
+  # The Flutter bundle. The embedder locates data/ and lib/ via /proc/self/exe,
+  # which resolves through the /usr/bin symlink to the real /opt path.
+  install -d "${pkgdir}/opt/inkpad"
+  cp -r squashfs-root/usr/bin/. "${pkgdir}/opt/inkpad/"
+
+  install -d "${pkgdir}/usr/bin"
+  ln -s /opt/inkpad/inkpad "${pkgdir}/usr/bin/inkpad"
+
+  # Desktop entry, MIME rule, and every icon size the AppDir carries.
+  install -Dm644 squashfs-root/usr/share/applications/inkpad.desktop \
+    "${pkgdir}/usr/share/applications/inkpad.desktop"
+  if [ -f squashfs-root/usr/share/mime/packages/inkpad-skd.xml ]; then
+    install -Dm644 squashfs-root/usr/share/mime/packages/inkpad-skd.xml \
+      "${pkgdir}/usr/share/mime/packages/inkpad-skd.xml"
+  fi
+  cp -r squashfs-root/usr/share/icons "${pkgdir}/usr/share/icons"
+}
