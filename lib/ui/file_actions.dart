@@ -275,10 +275,13 @@ Future<bool> resolveUnsavedBeforeClose(
 
 /// Reviews unsaved work and quits the app when the user allows it.
 ///
-/// The window-close button (through `PopScope`), File → Quit, and Ctrl/Cmd+Q
-/// all route through here, so none can bypass the save prompt. Returns whether
-/// the quit went ahead — useful to a test, since `SystemNavigator.pop` has no
-/// host under `flutter_test` and is a no-op there.
+/// File → Quit and Ctrl/Cmd+Q route through here. The window-close button takes
+/// a different road — the platform asks first, handled by the app's
+/// `AppLifecycleListener.onExitRequested`, which calls [confirmQuit] directly —
+/// but both gates share [confirmQuit], so neither can bypass the save prompt.
+///
+/// Returns whether the quit went ahead — useful to a test, since
+/// `SystemNavigator.pop` has no host under `flutter_test` and is a no-op there.
 Future<bool> attemptQuit(BuildContext context, WidgetRef ref) async {
   if (!await confirmQuit(context, ref)) return false;
   await SystemNavigator.pop();

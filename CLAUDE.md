@@ -242,6 +242,10 @@ A connector's `boundIndex` is an index into **its own container's** element list
 - Format tests must include: round-trip equality (for strokes, every shape type, and text with mixed runs and non-ASCII), corrupt-file rejection, unknown-future-version rejection, unknown-`elementType` rejection, and golden-fixture loading. Never assert rendered text pixels — the fonts are the user's.
 - Transform math (resize, rotate) must be unit-tested per handle, including dragging a handle past its anchor so width/height flip sign.
 - UI: widget tests for critical interactions (drawing a stroke registers points; dragging the rectangle tool adds a shape; undo restores state). Don't chase pixel-perfect golden images for the canvas.
+- **Text is the app's most fragile feature — treat it as a standing regression risk on every change.** Two whole classes of text bug are invisible to `flutter test` and have each shipped broken more than once:
+  1. **Commit** — the typed characters never reach the document (e.g. a new edit clobbered the pending one, or a focus race deleted the box). `flutter test` hides this because `enterText` force-focuses the field, so the widget test passes while the real app drops the text.
+  2. **Render** — the committed text never rasterizes (`drawParagraph` inside `toImageSync`/`saveLayer`; see Performance Notes). `flutter test`'s offscreen rasterizer *does* draw text, so again the unit test passes while the GTK app shows blank.
+  Therefore: **any change that touches rendering, layer compositing, focus, tool switching, the text editor, or the commit/undo path MUST be verified by building and running the real GTK app** (type text, click away, switch tools, start a second box — confirm each survives *and* is visible), not by `flutter test` alone. Keep the regression tests in `text_tool_test.dart` and `text_layer_live_test.dart` green, but never treat a green suite as proof text works. When in doubt, do the real-app check.
 
 ## Performance Notes
 

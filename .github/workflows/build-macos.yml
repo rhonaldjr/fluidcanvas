@@ -1,0 +1,47 @@
+name: Build macOS
+
+# Reusable: called by release.yml on a tag. Not wired into ci.yml — a macOS
+# runner is far slower and costlier than the Linux one, and the macOS build is
+# not yet a supported everyday target, so it runs only when a release is cut.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.44.6
+
+jobs:
+  build:
+    name: macOS Apple Silicon .dmg
+    # macos-14 is an Apple Silicon (arm64) runner. The .dmg is arm64-only by
+    # design (build_dmg.sh fails on any other arch), so this must not fall back
+    # to an Intel image.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Ad-hoc signed (the Release config sets CODE_SIGN_IDENTITY = "-"), so no
+      # Apple Developer account is needed here. Proper signing + notarization is
+      # roadmap 16.3 and slots in after this build, before build_dmg.sh.
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      - name: Package .dmg (and verify it is arm64)
+        run: ./scripts/build_dmg.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InkPad-arm64.dmg
+          path: dist/InkPad-arm64.dmg
+          if-no-files-found: error

@@ -250,4 +250,30 @@ void main() {
       await tester.pumpAndSettle();
     });
   });
+
+  group('shortcuts survive text editing (focus not orphaned)', () {
+    testWidgets('a tool letter still fires after a text box is committed', (
+      tester,
+    ) async {
+      final container = await pumpShell(tester);
+
+      // Place a text box, type into it, and commit by blurring.
+      container.read(toolProvider.notifier).select(Tool.text);
+      await tester.pump();
+      final origin = tester.getRect(find.byKey(_pageKey)).topLeft;
+      await tester.tapAt(origin + const Offset(80, 80));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('text-editor')), 'hello');
+      await tester.pump();
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+
+      // The editor's focus node is gone. Without a shell-level FocusScope,
+      // focus reverts above the Shortcuts widget and this bare letter reaches
+      // nothing; with it, the tool changes.
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+      await tester.pumpAndSettle();
+      expect(container.read(toolProvider), Tool.rectangle);
+    });
+  });
 }

@@ -18,9 +18,13 @@ jobs:
   build:
     uses: ./.github/workflows/build-appimage.yml
 
+  # The macOS Apple Silicon .dmg. Only built on a tag — see build-macos.yml.
+  build-macos:
+    uses: ./.github/workflows/build-macos.yml
+
   publish:
     name: Publish release
-    needs: build
+    needs: [build, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +32,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: InkPad-x86_64.AppImage
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: InkPad-arm64.dmg
           path: dist
 
       - name: Derive version from tag
@@ -52,7 +61,7 @@ jobs:
         working-directory: dist
         run: |
           chmod +x InkPad-x86_64.AppImage
-          sha256sum InkPad-x86_64.AppImage > SHA256SUMS
+          sha256sum InkPad-x86_64.AppImage InkPad-arm64.dmg > SHA256SUMS
           cat SHA256SUMS
 
       - name: Extract release notes
@@ -64,6 +73,7 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             dist/InkPad-x86_64.AppImage \
+            dist/InkPad-arm64.dmg \
             dist/SHA256SUMS \
             --title "InkPad ${{ steps.version.outputs.version }}" \
             --notes-file release-notes.md \

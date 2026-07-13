@@ -30,7 +30,7 @@ Draw with a mouse or a pressure-sensitive stylus, drop in resizable shapes, orga
 | Platform | Official binaries | Notes |
 | --- | --- | --- |
 | Linux | AppImage (x86_64) | Built by CI. Developed and tested on Debian-based systems. Needs a desktop with the usual font stack and GL drivers; everything else is bundled. |
-| macOS | None yet | Apple Silicon builds are planned once the app is feature-complete on Linux. Builds locally today. |
+| macOS | `.dmg` (Apple Silicon) | Built by CI for arm64. **Unsigned** for now, so Gatekeeper blocks the first launch — right-click the app and choose **Open** once to allow it. Signing + notarization are planned. |
 | Windows | None yet | The `windows/` target is in the tree and builds locally. Packaging and signing are deferred. |
 
 No web or mobile targets are planned.
@@ -78,6 +78,12 @@ To build the AppImage locally, after `flutter build linux --release`:
 ```bash
 ./scripts/build_appimage.sh        # → dist/InkPad-x86_64.AppImage
 ./scripts/smoke_test_appimage.sh   # launches it under xvfb to prove it starts
+```
+
+To build the macOS `.dmg` locally (on an Apple Silicon Mac), after `flutter build macos --release`:
+
+```bash
+./scripts/build_dmg.sh             # → dist/InkPad-arm64.dmg (verifies it is arm64)
 ```
 
 `flutter analyze` and `flutter test` must both pass before any change is considered done.

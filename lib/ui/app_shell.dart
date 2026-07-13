@@ -23,8 +23,16 @@ class AppShell extends ConsumerWidget {
     final typing = ref.watch(textEditingProvider) != null;
 
     // Shortcuts live above the shell so they fire wherever focus sits, and
-    // `autofocus` gives the canvas focus at startup so the first Ctrl+Z works
+    // `autofocus` gives the shell focus at startup so the first Ctrl+Z works
     // without clicking anything first.
+    //
+    // The `FocusScope` matters: shortcuts only reach [Shortcuts] while the
+    // focused node is *below* it. A bare [Focus] leaves the nearest enclosing
+    // scope up in the Navigator, so when the text editor's own focus node is
+    // disposed on commit, focus reverts to that Navigator scope — above
+    // [Shortcuts] — and every shortcut goes dead until something inside is
+    // clicked again. A scope here catches that reversion and keeps focus in the
+    // shell, so shortcuts survive editing text, opening a menu, and the like.
     return Shortcuts(
       shortcuts: typing ? const <ShortcutActivator, Intent>{} : kAppShortcuts,
       child: Actions(
@@ -116,7 +124,7 @@ class AppShell extends ConsumerWidget {
             onInvoke: (_) => attemptQuit(context, ref),
           ),
         },
-        child: Focus(
+        child: FocusScope(
           autofocus: true,
           child: Scaffold(
             body: Column(

@@ -1,3 +1,5 @@
+import 'dart:ui' show AppExitResponse;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -48,16 +50,37 @@ class _Desktop extends ConsumerStatefulWidget {
 class _DesktopState extends ConsumerState<_Desktop> {
   static const _title = WindowTitle();
 
+  /// Intercepts the OS's "close this window" request — the title-bar X, the
+  /// dock/taskbar close, `wmctrl -c`, logout. Unlike `PopScope` (which only
+  /// catches Navigator pops and never fires for a desktop window close), this
+  /// is the seam the platform actually asks through before quitting.
+  late final AppLifecycleListener _lifecycle;
+
   @override
   void initState() {
     super.initState();
     ref.read(autosaveTickerProvider).start();
+    _lifecycle = AppLifecycleListener(onExitRequested: _onExitRequested);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Riverpod's listen only fires on change, so name the first window.
       _title.set(windowTitleFor(ref.read(activeSessionProvider)));
       _setWindowIcon();
       _openStartupFiles();
     });
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
+  /// Reviews unsaved work before the window is allowed to close, and cancels
+  /// the exit if the user backs out of any prompt.
+  Future<AppExitResponse> _onExitRequested() async {
+    if (!mounted) return AppExitResponse.exit;
+    final proceed = await confirmQuit(context, ref);
+    return proceed ? AppExitResponse.exit : AppExitResponse.cancel;
   }
 
   /// Hands the shipped PNG to the host. A window with no icon is cosmetic, so
@@ -84,14 +107,9 @@ class _DesktopState extends ConsumerState<_Desktop> {
       if (was != now) _title.set(now);
     });
 
-    return PopScope(
-      // Quitting is refused until every dirty document has been reviewed.
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) return;
-        await attemptQuit(context, ref);
-      },
-      child: const AppShell(),
-    );
+    // No `PopScope`: a desktop window close never arrives as a Navigator pop,
+    // so it would never fire. The save review lives in [_onExitRequested]
+    // (window close) and [attemptQuit] (File → Quit, Ctrl/Cmd+Q) instead.
+    return const AppShell();
   }
 }
